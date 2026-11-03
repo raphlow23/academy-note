@@ -1,6 +1,6 @@
 import {tablesToData} from './domain.js';
 import {studentCreditState,isLastLesson} from './student-alerts.js';
-import {GoogleStore} from './google-store.js?v=20261104-login2';
+import {GoogleStore} from './google-store.js?v=20261104-login4';
 import {orderedStudentGroups} from './student-order.js';
 const backend=new GoogleStore();
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

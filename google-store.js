@@ -10,7 +10,7 @@ const stamp=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'num
 const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 
 export class GoogleStore{
- constructor({fetcher=fetch,config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};}
+ constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};}
  get configured(){return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(this.config.clientId);}
  async signIn(){
   if(!this.configured)throw new Error('구글 로그인 연결 설정이 아직 준비되지 않았습니다.');

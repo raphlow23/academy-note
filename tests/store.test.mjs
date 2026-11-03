@@ -2,6 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {GoogleStore} from '../google-store.js';
+
+test('기본 브라우저 fetch를 저장소 객체의 this로 호출하지 않는다',async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async function(){assert.equal(this,globalThis,'브라우저 fetch의 수신자는 Window여야 한다');return {ok:true,status:200,json:async()=>({email:'sample@example.com',sub:'test-user'})};};
+ try{const a=new GoogleStore();a.token='test-token';a.expires=Date.now()+3600000;assert.equal((await a.http('https://openidconnect.googleapis.com/v1/userinfo')).sub,'test-user');}
+ finally{globalThis.fetch=original;}
+});
+
+test('통신 실패는 연결 단계를 알리고 인증 정보는 오류에 포함하지 않는다',async()=>{
+ const a=new GoogleStore({fetcher:async()=>{throw new Error('network failure');}});
+ a.token='private-token';a.expires=Date.now()+3600000;
+ await assert.rejects(a.http('https://openidconnect.googleapis.com/v1/userinfo'),e=>e.message.includes('구글 계정 확인')&&!e.message.includes(a.token));
+ await assert.rejects(a.http('https://www.googleapis.com/drive/v3/files'),/구글 드라이브 연결/);
+ await assert.rejects(a.http('https://sheets.googleapis.com/v4/spreadsheets/test',{method:'POST',body:{}}),/저장 응답.*저장 여부/);
+});
 import {emptyTables,replay} from '../domain.js';
 import {LOG_HEADERS} from '../workbook.js';
 
