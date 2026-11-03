@@ -73,3 +73,13 @@
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
 @media screen and (max-width:600px){.brandmark{width:30px;height:30px;border-radius:9px}.login .brandmark{width:44px;height:44px;border-radius:12px}}
+@media screen{
+ #refresh,.calendar-mode .heading .tools #refresh,#prevMonth,#nextMonth,.calendar-mode .monthcontrols #prevMonth,.calendar-mode .monthcontrols #nextMonth{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:9px;flex:0 0 44px;border-radius:14px;color:#344e7b}
+ .control-icon{display:block;width:24px;height:24px;flex:none}
+ .heading .tools button,.calendar-mode .heading .tools button{min-height:44px;font-size:13px}
+ .monthcontrols button,.calendar-mode .monthcontrols button{min-height:44px;min-width:44px;font-size:12px}
+ .slotadd,.daydialog .slotadd{width:44px;height:44px;min-width:44px;min-height:44px;font-size:27px;font-weight:500;line-height:1;padding:0;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+ .schedulepill button{min-width:44px;min-height:44px;font-size:25px;padding:3px 10px}
+ .dialogtop [data-close],.daydialog>.dialogtop button{min-width:44px;min-height:44px;font-size:13px}
+ @media(max-width:380px){.calendar-mode .panelhead{flex-wrap:wrap}.calendar-mode .panelhead h2{flex:1 0 100%}.calendar-mode .monthcontrols{width:100%;justify-content:space-between}}
+}
