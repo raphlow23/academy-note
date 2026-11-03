@@ -70,3 +70,6 @@
 .creditnotice,.lastlesson{background:#ffebee}
 .student-name{color:var(--ink,#20232c)!important}
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
+.brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
+.brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+@media screen and (max-width:600px){.brandmark{width:30px;height:30px;border-radius:9px}.login .brandmark{width:44px;height:44px;border-radius:12px}}

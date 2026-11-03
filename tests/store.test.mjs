@@ -3,6 +3,27 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {GoogleStore} from '../google-store.js';
 
+test('새로고침 후 유효한 연결을 Google에 재확인하고 같은 계정 공간을 불러온다',async()=>{
+ const previousStorage=globalThis.sessionStorage,previousLocation=globalThis.location,entries=new Map();
+ globalThis.sessionStorage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
+ globalThis.location={href:'https://example.test/academy/'};
+ try{
+  const first=new GoogleStore();first.token='test-saved-token';first.expires=Date.now()+60000;first.persistSession();
+  const reloaded=new GoogleStore();let verified=0;
+  reloaded.http=async url=>{assert(url.includes('/userinfo'));verified++;return {email:'restore@example.test',sub:'restore-owner'};};
+  reloaded.listFiles=async()=>{reloaded.files=[{id:'restored-sheet',ownedByMe:true}];return reloaded.files;};
+  assert.equal(await reloaded.restoreSession(),true);assert.equal(verified,1);assert.equal(reloaded.user.email,'restore@example.test');assert.equal(reloaded.selected,'restored-sheet');
+  reloaded.disconnect();assert.equal(entries.size,0);assert.equal(reloaded.token,'');
+ }finally{if(previousStorage===undefined)delete globalThis.sessionStorage;else globalThis.sessionStorage=previousStorage;if(previousLocation===undefined)delete globalThis.location;else globalThis.location=previousLocation;}
+});
+test('만료·취소된 연결은 복구하지 않고 보관된 토큰을 지운다',async()=>{
+ const previous=globalThis.sessionStorage,entries=new Map();globalThis.sessionStorage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
+ try{
+  const a=new GoogleStore();a.token='expired-token';a.expires=Date.now()-1;a.persistSession();assert.equal(await a.restoreSession(),false);assert.equal(entries.size,0);
+  a.token='revoked-token';a.expires=Date.now()+60000;a.persistSession();a.connectAccount=async()=>{const e=new Error('revoked');e.code='AUTH_REQUIRED';throw e;};assert.equal(await a.restoreSession(),false);assert.equal(entries.size,0);
+ }finally{if(previous===undefined)delete globalThis.sessionStorage;else globalThis.sessionStorage=previous;}
+});
+
 test('첫 로그인 저장 공간을 자동 생성하고 동시 연결 요청은 한 번만 생성한다',async()=>{
  const a=new GoogleStore();a.user={sub:'auto-owner',email:'auto@example.test'};let creates=0;
  a.listFiles=async()=>a.files;

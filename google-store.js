@@ -8,6 +8,7 @@ const mutations=new Set(['saveStudent','addTransaction','book','changeBooking','
 const clone=x=>structuredClone(x);
 const stamp=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
 const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
+const SESSION_KEY='subong-google-session-v1';
 
 export class GoogleStore{
  constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};}
@@ -23,6 +24,9 @@ export class GoogleStore{
   if(this.epoch!==epoch)throw new Error('계정이 전환되었습니다. 다시 연결하세요.');
   if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/userinfo.email'))throw new Error('이 앱에서 사용하는 파일 접근과 이메일 확인 권한을 승인해 주세요.');
   this.token=response.access_token;this.expires=Date.now()+Number(response.expires_in||3500)*1000-30000;
+  await this.connectAccount();this.persistSession();return this.user;
+ }
+ async connectAccount(){
   const identity=await this.http('https://openidconnect.googleapis.com/v1/userinfo');
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
@@ -33,8 +37,17 @@ export class GoogleStore{
   if(invited&&validId(invited)){try{const meta=await this.meta(invited);if(meta.ownedByMe||meta.capabilities?.canEdit){this.remember(meta);this.selected=invited;}}catch{}}
   return this.user;
  }
- disconnect(){this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.ownSetup=null;this.onSignOut();}
- assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}
+ persistSession(){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({token:this.token,expires:this.expires,savedAt:Date.now()}));}catch{}}
+ forgetSession(){try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
+ async restoreSession(){
+  let saved;try{saved=JSON.parse(sessionStorage.getItem(SESSION_KEY));}catch{return false;}
+  if(!saved)return false;
+  if(typeof saved.token!=='string'||!saved.token||!Number.isFinite(saved.expires)||!Number.isFinite(saved.savedAt)||saved.expires<=Date.now()||saved.savedAt>Date.now()+60000){this.forgetSession();return false;}
+  this.disconnect({forget:false});this.token=saved.token;this.expires=Math.min(saved.expires,saved.savedAt+3600000);
+  try{await this.connectAccount();return true;}catch(e){if(e.code==='AUTH_REQUIRED'){this.disconnect();return false;}throw e;}
+ }
+ disconnect({forget=true}={}){if(forget)this.forgetSession();this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.ownSetup=null;this.onSignOut();}
+ assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';this.forgetSession();const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}
  async http(url,{method='GET',body,readRetry=method==='GET'}={}){
   this.assertSession();const epoch=this.epoch,token=this.token;
   for(let attempt=0;;attempt++){
@@ -42,7 +55,7 @@ export class GoogleStore{
    try{response=await this.fetcher(url,{method,signal:AbortSignal.timeout(25000),headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
    catch{const stage=url.includes('/userinfo')?'구글 계정 확인':url.startsWith(SHEETS)?'구글 시트 연결':'구글 드라이브 연결';throw new Error(method==='GET'?stage+' 응답을 받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러주세요.':stage+' 저장 응답을 받지 못했습니다. 새로고침으로 저장 여부를 먼저 확인하세요.');}
    if(this.epoch!==epoch)throw new Error('계정이 바뀌어 이전 계정의 요청을 중단했습니다.');
-   if(response.status===401){this.token='';const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
+   if(response.status===401){this.disconnect();const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
    if(readRetry&&[429,500,502,503].includes(response.status)&&attempt<3){await new Promise(r=>setTimeout(r,500*2**attempt));continue;}
    const data=response.status===204?{}:await response.json().catch(()=>({}));
    if(!response.ok){const error=new Error(response.status===403?'이 파일 접근이 허용되지 않았습니다. 파일 선택에서 직접 연결하거나 소유자의 공유 권한을 확인하세요.':data.error?.message||'구글 요청을 처리하지 못했습니다. ('+response.status+')');error.status=response.status;throw error;}
