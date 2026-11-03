@@ -21,7 +21,7 @@ export function workbookResource(base=emptyTables()){
   sheets.push({properties:{sheetId:sheets.length,title:name,hidden,gridProperties:{rowCount:Math.max(1000,rows.length+20),columnCount:Math.max(width,22),frozenRowCount:1}},data:[{startRow:0,startColumn:0,rowData:rows.map((r,i)=>({values:r.map(v=>i===0?header(String(v)):cell(v))}))},...(formula?[{startRow:1,startColumn:0,rowData:[{values:[{userEnteredValue:{formulaValue:formula}}]}]}]:[])]});
  }
  add('사용안내',[
-  ['학원 노트 · 내 구글 계정 소유','웹앱 없이도 이 파일을 직접 조회·출력·엑셀 다운로드할 수 있습니다.'],
+  ['수봉화실 · 내 구글 계정 소유','웹앱 없이도 이 파일을 직접 조회·출력·엑셀 다운로드할 수 있습니다.'],
   ['현재 자료','수강생·수강권납부·예약은 아래 작업기록의 적용된 결과를 수식으로 표시합니다.'],
   ['공유','기본 비공개. 소유자가 명시적으로 허용한 구글 계정만 함께 관리합니다.'],
   ['작업기록','추가된 순서가 기준입니다. 처리 대기인 작업은 다음 앱 연결 때 검증·반영됩니다.'],
@@ -38,7 +38,7 @@ export function workbookResource(base=emptyTables()){
  add('초기설정요약',initialSettingsRows(base),7,true);
  for(const name of Object.keys(TABLES))add(name,[TABLES[name]],TABLES[name].length,false,currentView(name));
  add('수강현황',[SUMMARY_HEADERS],SUMMARY_HEADERS.length);
- return {properties:{title:'학원 노트 · 나의 수강생과 예약',locale:'ko_KR',timeZone:'Asia/Seoul'},sheets};
+ return {properties:{title:'수봉화실 · 나의 수강생과 예약',locale:'ko_KR',timeZone:'Asia/Seoul'},sheets};
 }
 
 export function summaryRequests(sheetId){
@@ -59,7 +59,7 @@ export function parseBase(valueRanges){
  Object.entries(TABLES).forEach(([name,headers],i)=>{
   const rows=valueRanges[i]?.values||[];
   const legacy=name==='예약'&&JSON.stringify(rows[0])===JSON.stringify(headers.slice(0,12));
-  if(!legacy&&JSON.stringify(rows[0])!==JSON.stringify(headers))throw new Error(name+' 머리글이 맞지 않습니다. 학원 노트에서 만든 원본 파일을 선택하세요.');
+  if(!legacy&&JSON.stringify(rows[0])!==JSON.stringify(headers))throw new Error(name+' 머리글이 맞지 않습니다. 수봉화실에서 만든 원본 파일을 선택하세요.');
   base[name]=[headers.slice(),...rows.slice(1).filter(r=>r[0]).map(r=>Array.from({length:headers.length},(_,j)=>r[j]??''))];
  });
  return base;

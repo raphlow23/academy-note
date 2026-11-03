@@ -1,6 +1,6 @@
 import {CONFIG} from './config.js?v=20261104-google1';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-history1';
-import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-history1';
+import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-subong1';
 
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const DRIVE='https://www.googleapis.com/drive/v3', SHEETS='https://sheets.googleapis.com/v4/spreadsheets';
@@ -57,7 +57,7 @@ export class GoogleStore{
   do{const data=await this.http(DRIVE+'/files?'+new URLSearchParams({q,spaces:'drive',fields:'nextPageToken,files(id,name,ownedByMe,capabilities(canEdit),owners(emailAddress),appProperties,properties,mimeType)',pageSize:'100',...(pageToken?{pageToken}:{})}));files.push(...(data.files||[]));pageToken=data.nextPageToken||'';}while(pageToken);
   this.files=files.filter(m=>this.eligible(m));return this.files;
  }
- remember(meta){if(!this.eligible(meta))throw new Error('새 학원 노트 자료가 아닙니다. 기존 자료는 이관 기능으로 연결하세요.');this.files=this.files.filter(f=>f.id!==meta.id).concat(meta);}
+ remember(meta){if(!this.eligible(meta))throw new Error('새 수봉화실 자료가 아닙니다. 기존 자료는 이관 기능으로 연결하세요.');this.files=this.files.filter(f=>f.id!==meta.id).concat(meta);}
  workspaces(){return this.files.map(f=>({id:f.id,name:f.name,own:!!f.ownedByMe}));}
  async ensureOwnWorkspace(){
   if(!this.user)throw new Error('로그인하세요.');
