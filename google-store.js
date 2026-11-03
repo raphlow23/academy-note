@@ -1,6 +1,6 @@
 import {CONFIG} from './config.js?v=20261104-google1';
-import {TABLES, emptyTables, replay, tablesToData} from './domain.js';
-import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js';
+import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-history1';
+import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-history1';
 
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const DRIVE='https://www.googleapis.com/drive/v3', SHEETS='https://sheets.googleapis.com/v4/spreadsheets';
@@ -113,6 +113,7 @@ export class GoogleStore{
   this.remember(meta);return this.select(id);
  }
  async mutate(action,data,id){
+  if(action==='saveSchedule'&&!data.effectiveFrom)throw new Error('적용 시작일을 선택하세요. 이전 화면을 사용 중이면 페이지를 새로고침해 주세요.');
   this.latestTables=null;this.latestWorkspace='';
   const fingerprint=JSON.stringify([id,action,data]),pending=this.pending.get(fingerprint)||{id:crypto.randomUUID(),actor:this.user.email,at:stamp(),action,data:clone(data)};
   this.pending.set(fingerprint,pending);

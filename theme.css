@@ -50,4 +50,16 @@
   .calendar-mode .daytop{flex-basis:16px;min-height:16px}.calendar-mode .slotchip{flex-basis:12px;min-height:12px;max-height:12px;padding:1px 2px}.calendar-mode .slottime,.calendar-mode .slotnames{line-height:10px}.calendar-mode .monthslots{gap:1px}
  }
 }
+@media screen{
+ .calendar-mode .workspace{grid-template-columns:minmax(0,1fr)}
+ .calendar-mode #dayPanelHome{display:none}.calendar-mode .timetable-only #dayPanelHome{display:block}
+ .day-modal-open{overflow:hidden}
+ .daydialog{width:calc(100% - 40px);max-width:940px;max-height:calc(100dvh - 44px);padding:0 22px 22px;overscroll-behavior:contain;background:#f1f5ff}
+ .daydialog>.dialogtop{position:sticky;top:0;z-index:2;background:#f1f5ff;padding:17px 0 14px;gap:10px;border-bottom:1px solid #dfe7f8;margin-bottom:16px}
+ .daydialog>.dialogtop h2{font-size:17px;line-height:1.4}.daydialog>.dialogtop button{min-height:36px;padding:7px 14px;flex-shrink:0}
+ .daydialog #dayPanel{max-height:none;overflow:visible;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;background:none;border:0;padding:0}
+ .daydialog .daytitle,.daydialog .cancelled,.daydialog #dayPanel>.empty{grid-column:1/-1}.daydialog .timeslot{margin:0}.daydialog .daytitle{margin-bottom:3px}
+ .schedulehistory{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}.schedulehistory summary{cursor:pointer;color:#596e96;font-size:12px}.schedulehistory .scheduleday{grid-template-columns:100px 1fr;font-size:12px}
+ @media(max-width:600px){.daydialog{width:calc(100% - 16px);max-height:calc(100dvh - 16px);padding:0 15px 16px;border-radius:23px}.daydialog>.dialogtop{padding:14px 0 12px}.daydialog>.dialogtop h2{font-size:15px}.daydialog #dayPanel{grid-template-columns:minmax(0,1fr);gap:10px}.daydialog .daytitle h2{font-size:18px}.daydialog .timeslot{padding:13px}.daydialog .slotpeople>span{font-size:14px}.daydialog .slotpeople small{font-size:12px}}
+}
 @media print{.monthslots{display:block;overflow:visible}.slotchip{break-inside:avoid}.slotend{display:inline}}

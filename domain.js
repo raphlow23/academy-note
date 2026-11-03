@@ -1,3 +1,4 @@
+import {BASELINE_DATE,nextDate,scheduleFromRows,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
 // Pure validation and deterministic ordered replay. No credentials or remote state.
 const TABLES_ = {
   '수강생': ['수강생ID','이름','연락처','최초등록일','메모','재원상태','이관전누적수강횟수','이관전누적납부금액','수정버전','수정일시','기록자'],
@@ -80,7 +81,7 @@ function book_(u,d){
   if(used>=Number(pass[5]))throw new Error('잔여 횟수가 없습니다. 새로고침 후 수강권을 확인하세요.');
   const end=d.endTime===undefined?clock_(Math.min(1440,minutes_(time)+(pass[4]==='1일클래스'?60:120))):endClock_(d.endTime);
   if(minutes_(time)%30||minutes_(end)%30||minutes_(end)<=minutes_(time))throw new Error('시작·종료를 30분 단위로 선택하세요. 종료는 시작 이후여야 합니다.');
-  const schedule=schedule_(),day=new Date(date+'T00:00:00Z').getUTCDay(),slots=schedule.slots.filter(t=>t.day===day);
+  const schedule=scheduleAtDate(schedule_(),date),day=new Date(date+'T00:00:00Z').getUTCDay(),slots=schedule.slots.filter(t=>t.day===day);
   if(schedule.slots.length&&!slots.some(t=>pass[4]==='1일클래스'?time>=t.start&&end<=t.end:time===t.start&&end===t.end))throw new Error('해당 요일의 수업 타임을 선택하세요. 1일 클래스는 한 타임 안에서 30분 단위로 예약할 수 있습니다.');
   if(all.some(r=>r[1]===date&&r[3]===s[0]&&r[7]!=='취소'&&minutes_(r[2])<minutes_(end)&&minutes_(endTime_(r))>minutes_(time)))throw new Error('같은 수강생의 시간이 겹치는 예약이 이미 있습니다.');
   const row=[id,date,time,s[0],s[1],pass[0],pass[4],'예약',note,1,now_(),u.name,end];append_('예약',row);return booking_(row.map(String));
@@ -120,7 +121,7 @@ function saveClosures_(u,d){
   const rows=[['설정','버전','','','','',next.version]];
   weekdays.forEach(day=>rows.push(['weekday-'+day,'매주',WEEKDAYS_[day],'','','정기 휴무',next.version]));
   ranges.forEach(r=>rows.push([r.id,'기간','',r.start,r.end,r.reason,next.version]));
-  rows.push(...rows_('휴무설정').filter(r=>r[0]&&(r[1]==='수업시간'||r[0]==='시간설정')));
+  rows.push(...rows_('휴무설정').filter(r=>r[0]&&(r[1]==='수업시간'||r[1]==='시간표이력'||r[0]==='시간설정')));
   const length=Math.max(rows.length,lastRow_('휴무설정')-1);
   while(rows.length<length)rows.push(Array(TABLES_['휴무설정'].length).fill(''));
   setRows_('휴무설정',2,rows);
@@ -128,18 +129,25 @@ function saveClosures_(u,d){
 }
 
 function endClock_(v){return v==='24:00'?v:time_(v);}
-function schedule_(){const r=rows_('휴무설정');return {version:Number(r.find(x=>x[0]==='시간설정')?.[6]||1),slots:r.filter(x=>x[1]==='수업시간').map(x=>({id:x[0],day:WEEKDAYS_.indexOf(x[2]),start:x[3],end:x[4]})).sort((a,b)=>a.day-b.day||a.start.localeCompare(b.start))};}
+function schedule_(){return scheduleFromRows(rows_('휴무설정'));}
 function saveSchedule_(u,d){
   admin_(u);const current=schedule_();if(d.version!==current.version)throw new Error('다른 사용자가 수업 시간을 바꿨습니다. 새로고침하세요.');
+  const effectiveFrom=d.effectiveFrom===undefined?null:date_(d.effectiveFrom);
+  if(!effectiveFrom&&current.history.length)throw new Error('새 버전에서 적용 시작일을 선택하세요. 페이지를 새로고침해 주세요.');
+  if(effectiveFrom&&effectiveFrom<nextDate(event.at.slice(0,10)))throw new Error('적용 시작일은 내일 이후로 선택하세요. 오늘과 과거 시간표는 변경할 수 없습니다.');
   if(!Array.isArray(d.slots)||d.slots.length>168)throw new Error('수업 시간은 전체 168개까지 등록할 수 있습니다.');
   const slots=d.slots.map(s=>({id:id_(s.id),day:int_(s.day,0,6),start:time_(s.start),end:endClock_(s.end)}));
   if(new Set(slots.map(s=>s.id)).size!==slots.length)throw new Error('중복된 수업 시간 ID입니다.');
   slots.sort((a,b)=>a.day-b.day||a.start.localeCompare(b.start));
   slots.forEach((s,i)=>{if(minutes_(s.start)%30||minutes_(s.end)%30||s.start>=s.end)throw new Error('수업 시작·종료는 30분 단위이며 종료는 시작 이후여야 합니다.');const prev=slots[i-1];if(prev&&prev.day===s.day&&prev.end>s.start)throw new Error(WEEKDAYS_[s.day]+' 수업 시간이 겹칩니다.');});
   const version=current.version+1,rows=rows_('휴무설정').filter(r=>r[0]&&r[0]!=='시간설정'&&r[1]!=='수업시간');
+  if(effectiveFrom){
+   if(!current.history.length)rows.push(['시간표-기준','시간표이력','',BASELINE_DATE,'',JSON.stringify(current.slots),current.version]);
+   rows.push(['시간표-'+version,'시간표이력','',effectiveFrom,'',JSON.stringify(slots),version]);
+  }
   rows.push(['시간설정','시간버전','','','','',version]);slots.forEach(s=>rows.push([s.id,'수업시간',WEEKDAYS_[s.day],s.start,s.end,'',version]));
   const length=Math.max(rows.length,lastRow_('휴무설정')-1);while(rows.length<length)rows.push(Array(7).fill(''));setRows_('휴무설정',2,rows);
-  return {version,slots};
+  return scheduleFromRows(rows);
 }
 
   const handlers={saveStudent:saveStudent_,addTransaction:addTransaction_,book:book_,changeBooking:changeBooking_,saveClosures:saveClosures_,saveSchedule:saveSchedule_};
@@ -149,7 +157,7 @@ function saveSchedule_(u,d){
   const target=edits[0]?.name||({saveStudent:'수강생',addTransaction:'수강권납부',book:'예약',changeBooking:'예약',saveClosures:'휴무설정',saveSchedule:'휴무설정'}[event.action]);
   let record=[];
   if(target!=='휴무설정')record=tables[target].find(r=>r[0]===result.id)||[];
-  else if(event.action==='saveSchedule')record=['수업시간','설정 변경','','','',''+result.slots.map(s=>WEEKDAYS_[s.day]+' '+s.start+'–'+s.end).join(' / '),result.version];
+  else if(event.action==='saveSchedule')record=[event.data.effectiveFrom?'수업시간-'+result.version:'수업시간','설정 변경','',event.data.effectiveFrom||'','',''+result.slots.map(s=>WEEKDAYS_[s.day]+' '+s.start+'–'+s.end).join(' / '),result.version];
   else record=['휴무','설정 변경',result.weekdays.map(d=>WEEKDAYS_[d]).join(', '),'','',result.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),result.version];
   return {result,target,record};
 }
@@ -171,6 +179,6 @@ export function replay(base, events){
 export function tablesToData(tables){
  const rows=n=>tables[n].slice(1).filter(r=>r[0]),r=rows('휴무설정'),v=r.find(x=>x[0]==='설정');
  const dateEnd=b=>{if(b[12])return b[12];const end=Math.min(1440,Number(b[2].slice(0,2))*60+Number(b[2].slice(3))+(b[6]==='1일클래스'?60:120));return String(Math.floor(end/60)).padStart(2,'0')+':'+String(end%60).padStart(2,'0');};
- return {students:rows('수강생').map(r=>({id:r[0],name:r[1],phone:r[2],since:r[3],note:r[4],active:r[5]==='재원',priorCount:Number(r[6]),priorPaid:Number(r[7]),version:Number(r[8])})),transactions:rows('수강권납부').map(r=>({id:r[0],studentId:r[1],studentName:r[2],date:r[3],kind:r[4],credits:Number(r[5]),amount:Number(r[6]),note:r[7],at:r[8],author:r[9]})),bookings:rows('예약').map(r=>({id:r[0],date:r[1],time:r[2],endTime:dateEnd(r),legacyTime:!r[12],studentId:r[3],studentName:r[4],passId:r[5],kind:r[6],status:r[7],note:r[8],version:Number(r[9]),at:r[10],author:r[11]})),closures:{version:Number(v?.[6]||1),weekdays:r.filter(x=>x[1]==='매주').map(x=>WEEKDAYS_[x[2]]),ranges:r.filter(x=>x[1]==='기간').map(x=>({id:x[0],start:x[3],end:x[4],reason:x[5]}))},schedule:{version:Number(r.find(x=>x[0]==='시간설정')?.[6]||1),slots:r.filter(x=>x[1]==='수업시간').map(x=>({id:x[0],day:WEEKDAYS_[x[2]],start:x[3],end:x[4]}))}};
+ return {students:rows('수강생').map(r=>({id:r[0],name:r[1],phone:r[2],since:r[3],note:r[4],active:r[5]==='재원',priorCount:Number(r[6]),priorPaid:Number(r[7]),version:Number(r[8])})),transactions:rows('수강권납부').map(r=>({id:r[0],studentId:r[1],studentName:r[2],date:r[3],kind:r[4],credits:Number(r[5]),amount:Number(r[6]),note:r[7],at:r[8],author:r[9]})),bookings:rows('예약').map(r=>({id:r[0],date:r[1],time:r[2],endTime:dateEnd(r),legacyTime:!r[12],studentId:r[3],studentName:r[4],passId:r[5],kind:r[6],status:r[7],note:r[8],version:Number(r[9]),at:r[10],author:r[11]})),closures:{version:Number(v?.[6]||1),weekdays:r.filter(x=>x[1]==='매주').map(x=>WEEKDAYS_[x[2]]),ranges:r.filter(x=>x[1]==='기간').map(x=>({id:x[0],start:x[3],end:x[4],reason:x[5]}))},schedule:scheduleFromRows(r)};
 }
 const WEEKDAYS_=Object.fromEntries(['일요일','월요일','화요일','수요일','목요일','금요일','토요일'].map((v,i)=>[v,i]));

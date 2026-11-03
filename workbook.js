@@ -1,4 +1,4 @@
-import {TABLES, SUMMARY_HEADERS, emptyTables, tablesToData} from './domain.js';
+import {TABLES, SUMMARY_HEADERS, emptyTables, tablesToData} from './domain.js?v=20261104-history1';
 
 export const LOG='작업기록';
 export const LOG_HEADERS=['작업ID','요청종류','기록계정','기록일시','요청데이터(JSON)','처리상태','처리메시지','대상표','대상ID',...Array.from({length:13},(_,i)=>'결과'+(i+1))];
@@ -11,7 +11,7 @@ function currentView(name){
  return `=IFERROR(LET(d,VSTACK(${range(name==='휴무설정'?'초기설정요약':BASE(name),'A2:'+end)},IFERROR(FILTER(${range(LOG,'J2:'+logEnd)},${range(LOG,'F2:F')}="적용",${range(LOG,'H2:H')}="${name}"),MAKEARRAY(1,${width},LAMBDA(r,c,"")))),f,FILTER(d,INDEX(d,,1)<>""),r,SORT(HSTACK(f,SEQUENCE(ROWS(f))),${width+1},FALSE),ids,UNIQUE(INDEX(f,,1)),ARRAYFORMULA(VLOOKUP(ids,r,SEQUENCE(1,${width}),FALSE))),"")`;
 }
 
-export function initialSettingsRows(base){const d=tablesToData(base),days=['일','월','화','수','목','금','토'];return [TABLES['휴무설정'],['휴무','설정 변경',d.closures.weekdays.map(n=>days[n]).join(', '),'','',d.closures.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),d.closures.version],['수업시간','설정 변경','','','',d.schedule.slots.map(s=>days[s.day]+'요일 '+s.start+'–'+s.end).join(' / '),d.schedule.version]];}
+export function initialSettingsRows(base){const d=tablesToData(base),days=['일','월','화','수','목','금','토'],describe=slots=>slots.map(s=>days[s.day]+'요일 '+s.start+'–'+s.end).join(' / ');return [TABLES['휴무설정'],['휴무','설정 변경',d.closures.weekdays.map(n=>days[n]).join(', '),'','',d.closures.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),d.closures.version],...(d.schedule.history.length?d.schedule.history.map(h=>['수업시간-'+h.version,'설정 변경','',h.effectiveFrom,'',describe(h.slots),h.version]):[['수업시간','설정 변경','','','',describe(d.schedule.slots),d.schedule.version]])];}
 
 export function workbookResource(base=emptyTables()){
  const header=v=>({userEnteredValue:{stringValue:v},userEnteredFormat:{backgroundColor:{red:.07,green:.43,blue:.36},textFormat:{bold:true,foregroundColor:{red:1,green:1,blue:1}}}});

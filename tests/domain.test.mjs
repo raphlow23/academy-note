@@ -5,6 +5,7 @@ import {emptyTables,replay,tablesToData} from '../domain.js';
 import {orderedStudentGroups} from '../student-order.js';
 import {studentCreditState,isLastLesson} from '../student-alerts.js';
 import {workbookResource,parseBase} from '../workbook.js';
+import {scheduleAtDate} from '../schedule-history.js';
 
 const actor='owner@example.test';
 const event=(action,data,extra={})=>({id:randomUUID(),action,data,actor,at:'2026-11-04 10:00:00',...extra});
@@ -53,3 +54,24 @@ test('소진 표시와 마지막 수업은 예약 취소·추가 수강권에 �
 test('아직 수강권을 등록하지 않은 신규 학생은 소진으로 잘못 표시하지 않는다',()=>{assert.equal(studentCreditState('new',{transactions:[],bookings:[]}).exhausted,false);});
 test('기존 12열 예약 자료를 보존해 이관하고 늦은 시각의 추정 종료를 24시로 제한한다',()=>{const f=fixture(),r=f.fold([f.book('2026-11-07','23:00','24:00')]),ranges=Object.values(r.tables).map(rows=>({values:rows}));ranges[2].values=ranges[2].values.map(r=>r.slice(0,12));const base=parseBase(ranges);assert.equal(base['예약'][0].length,13);assert.equal(tablesToData(base).bookings[0].endTime,'24:00');assert.equal(tablesToData(base).bookings[0].legacyTime,true);});
 test('새 워크북은 직접 확인 가능한 작업기록과 수강현황을 포함한다',()=>{const r=workbookResource();assert(r.sheets.find(s=>s.properties.title==='작업기록'));assert(r.sheets.find(s=>s.properties.title==='수강현황'));assert.equal(r.sheets.find(s=>s.properties.title==='수강생').data[1].rowData[0].values[0].userEnteredValue.formulaValue.startsWith('=IFERROR'),true);});
+
+const weekSlots=(start,end)=>Array.from({length:7},(_,day)=>({id:randomUUID(),day,start,end}));
+test('적용일 이전 시간표와 완료·미래 예약의 원래 시간이 보존된다',()=>{
+ const f=fixture(10),old=event('saveSchedule',{version:1,slots:weekSlots('11:00','13:00')}),past=f.book('2026-11-03'),future=f.book('2026-11-07');
+ const done=event('changeBooking',{id:past.data.id,version:1,status:'수강완료'}),change=event('saveSchedule',{version:2,effectiveFrom:'2026-11-05',slots:weekSlots('13:30','15:30')});
+ const before=f.fold([old,past,done,future]),after=f.fold([old,past,done,future,change]),d=tablesToData(after.tables);
+ assert.equal(after.outcomes.at(-1).status,'적용');assert.deepEqual(after.tables['예약'],before.tables['예약']);
+ assert.equal(scheduleAtDate(d.schedule,'2026-11-03').slots[0].start,'11:00');assert.equal(scheduleAtDate(d.schedule,'2026-11-04').slots[0].start,'11:00');assert.equal(scheduleAtDate(d.schedule,'2026-11-05').slots[0].start,'13:30');
+ const r=f.fold([old,change,f.book('2026-11-06'),f.book('2026-11-06','13:30','15:30')]);assert.equal(r.outcomes.at(-2).status,'거절');assert.equal(r.outcomes.at(-1).status,'적용');
+});
+test('여러 적용일과 휴무 저장 후에도 날짜별 시간표 이력이 유지된다',()=>{
+ const f=fixture(),a=event('saveSchedule',{version:1,slots:weekSlots('11:00','13:00')}),b=event('saveSchedule',{version:2,effectiveFrom:'2026-11-05',slots:weekSlots('13:30','15:30')}),c=event('saveSchedule',{version:3,effectiveFrom:'2026-11-10',slots:weekSlots('16:00','18:00')});
+ const r=f.fold([a,b,c,event('saveClosures',{version:1,weekdays:[0],ranges:[]})]),s=tablesToData(r.tables).schedule;
+ assert.equal(s.history.length,3);assert.equal(scheduleAtDate(s,'2026-11-04').slots[0].start,'11:00');assert.equal(scheduleAtDate(s,'2026-11-09').slots[0].start,'13:30');assert.equal(scheduleAtDate(s,'2026-11-10').slots[0].start,'16:00');
+ assert.deepEqual(replay(r.tables,[]).tables,r.tables);
+});
+test('오늘·과거 적용일과 이전 버전 클라이언트의 시간표 덮어쓰기를 막는다',()=>{
+ const f=fixture(),slots=weekSlots('11:00','13:00');
+ for(const effectiveFrom of ['2026-11-03','2026-11-04']){const r=f.fold([event('saveSchedule',{version:1,effectiveFrom,slots})]);assert.equal(r.outcomes.at(-1).status,'거절');assert.match(r.outcomes.at(-1).error,/내일 이후/);}
+ const r=f.fold([event('saveSchedule',{version:1,effectiveFrom:'2026-11-05',slots}),event('saveSchedule',{version:2,slots:[]})]);assert.equal(r.outcomes.at(-1).status,'거절');assert.equal(scheduleAtDate(tablesToData(r.tables).schedule,'2026-11-04').slots.length,0);
+});
