@@ -69,3 +69,4 @@
 .credit-last,.credit-last .namebutton,.credit-last .balance,.credit-last small,.credit-last b,.lastlesson,.creditnotice{color:#d32f2f!important}
 .creditnotice,.lastlesson{background:#ffebee}
 .student-name{color:var(--ink,#20232c)!important}
+@media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}

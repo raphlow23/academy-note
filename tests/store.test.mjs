@@ -3,6 +3,34 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {GoogleStore} from '../google-store.js';
 
+test('첫 로그인 저장 공간을 자동 생성하고 동시 연결 요청은 한 번만 생성한다',async()=>{
+ const a=new GoogleStore();a.user={sub:'auto-owner',email:'auto@example.test'};let creates=0;
+ a.listFiles=async()=>a.files;
+ a.initialize=async()=>{creates++;const m={id:'auto-sheet',ownedByMe:true};a.files.push(m);return {id:m.id};};
+ assert.deepEqual(await Promise.all([a.ensureOwnWorkspace(),a.ensureOwnWorkspace()]),['auto-sheet','auto-sheet']);assert.equal(creates,1);
+ assert.equal(await a.ensureOwnWorkspace(),'auto-sheet');assert.equal(creates,1);
+});
+test('로그인 완료 전에 자동 준비하고 재로그인에서는 기존 공간을 선택한다',async()=>{
+ const savedGoogle=globalThis.google,savedLocation=globalThis.location;
+ globalThis.location={href:'https://example.test/academy/'};
+ globalThis.google={accounts:{oauth2:{hasGrantedAllScopes:()=>true,initTokenClient:o=>({requestAccessToken:()=>o.callback({access_token:'test-token',expires_in:3600})})}}};
+ try{
+  const a=new GoogleStore({config:{clientId:'test.apps.googleusercontent.com'}});let creates=0;
+  const own={id:'first-login-sheet',ownedByMe:true,name:'내 학원'};
+  a.http=async()=>({email:'first@example.test',sub:'first'});
+  a.listFiles=async()=>{a.files=creates?[own]:[];return a.files;};
+  a.initialize=async()=>{creates++;a.files=[own];return a.select(own.id);};
+  await a.signIn();assert.equal(creates,1);assert.equal(a.selected,own.id);
+  await a.signIn();assert.equal(creates,1);assert.equal(a.selected,own.id);
+ }finally{if(savedGoogle===undefined)delete globalThis.google;else globalThis.google=savedGoogle;if(savedLocation===undefined)delete globalThis.location;else globalThis.location=savedLocation;}
+});
+test('기존 내 공간이 있으면 재사용하고 목록 조회 실패를 새 공간 생성으로 처리하지 않는다',async()=>{
+ const a=new GoogleStore();a.user={sub:'existing-owner',email:'existing@example.test'};let creates=0;
+ a.files=[{id:'existing-sheet',ownedByMe:true}];a.listFiles=async()=>a.files;a.initialize=async()=>{creates++;};
+ assert.equal(await a.ensureOwnWorkspace(),'existing-sheet');assert.equal(creates,0);
+ a.files=[];a.listFiles=async()=>{throw new Error('연결 실패');};await assert.rejects(a.ensureOwnWorkspace(),/연결 실패/);assert.equal(creates,0);
+});
+
 test('기본 브라우저 fetch를 저장소 객체의 this로 호출하지 않는다',async()=>{
  const original=globalThis.fetch;
  globalThis.fetch=async function(){assert.equal(this,globalThis,'브라우저 fetch의 수신자는 Window여야 한다');return {ok:true,status:200,json:async()=>({email:'sample@example.com',sub:'test-user'})};};

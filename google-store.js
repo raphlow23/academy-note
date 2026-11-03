@@ -26,14 +26,14 @@ export class GoogleStore{
   const identity=await this.http('https://openidconnect.googleapis.com/v1/userinfo');
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
-  await this.listFiles();
+  await this.ensureOwnWorkspace();
   let saved=null;try{saved=localStorage.getItem('academy-selected:'+this.user.sub);}catch{}
   this.selected=this.files.some(f=>f.id===saved)?saved:this.files.find(f=>f.ownedByMe)?.id||this.files[0]?.id||'';
   const invited=new URL(location.href).searchParams.get('workspace');
   if(invited&&validId(invited)){try{const meta=await this.meta(invited);if(meta.ownedByMe||meta.capabilities?.canEdit){this.remember(meta);this.selected=invited;}}catch{}}
   return this.user;
  }
- disconnect(){this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.onSignOut();}
+ disconnect(){this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.ownSetup=null;this.onSignOut();}
  assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}
  async http(url,{method='GET',body,readRetry=method==='GET'}={}){
   this.assertSession();const epoch=this.epoch,token=this.token;
@@ -45,7 +45,7 @@ export class GoogleStore{
    if(response.status===401){this.token='';const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
    if(readRetry&&[429,500,502,503].includes(response.status)&&attempt<3){await new Promise(r=>setTimeout(r,500*2**attempt));continue;}
    const data=response.status===204?{}:await response.json().catch(()=>({}));
-   if(!response.ok)throw new Error(response.status===403?'이 파일 접근이 허용되지 않았습니다. 파일 선택에서 직접 연결하거나 소유자의 공유 권한을 확인하세요.':data.error?.message||'구글 요청을 처리하지 못했습니다. ('+response.status+')');
+   if(!response.ok){const error=new Error(response.status===403?'이 파일 접근이 허용되지 않았습니다. 파일 선택에서 직접 연결하거나 소유자의 공유 권한을 확인하세요.':data.error?.message||'구글 요청을 처리하지 못했습니다. ('+response.status+')');error.status=response.status;throw error;}
    return data;
   }
  }
@@ -53,11 +53,33 @@ export class GoogleStore{
  eligible(m){return !m.trashed&&m.mimeType==='application/vnd.google-apps.spreadsheet'&&m.capabilities?.canEdit&&(m.appProperties?.academySchema==='3'||m.properties?.academySchema==='3');}
  async listFiles(){
   const q="trashed=false and mimeType='application/vnd.google-apps.spreadsheet' and (appProperties has { key='academySchema' and value='3' } or properties has { key='academySchema' and value='3' })";
-  const data=await this.http(DRIVE+'/files?'+new URLSearchParams({q,spaces:'drive',fields:'files(id,name,ownedByMe,capabilities(canEdit),owners(emailAddress),appProperties,properties,mimeType)',pageSize:'100'}));
-  this.files=(data.files||[]).filter(m=>this.eligible(m));return this.files;
+  const files=[];let pageToken='';
+  do{const data=await this.http(DRIVE+'/files?'+new URLSearchParams({q,spaces:'drive',fields:'nextPageToken,files(id,name,ownedByMe,capabilities(canEdit),owners(emailAddress),appProperties,properties,mimeType)',pageSize:'100',...(pageToken?{pageToken}:{})}));files.push(...(data.files||[]));pageToken=data.nextPageToken||'';}while(pageToken);
+  this.files=files.filter(m=>this.eligible(m));return this.files;
  }
  remember(meta){if(!this.eligible(meta))throw new Error('새 학원 노트 자료가 아닙니다. 기존 자료는 이관 기능으로 연결하세요.');this.files=this.files.filter(f=>f.id!==meta.id).concat(meta);}
  workspaces(){return this.files.map(f=>({id:f.id,name:f.name,own:!!f.ownedByMe}));}
+ async ensureOwnWorkspace(){
+  if(!this.user)throw new Error('로그인하세요.');
+  if(this.ownSetup)return this.ownSetup;
+  const epoch=this.epoch,sub=this.user.sub;
+  const setup=async()=>{
+   if(epoch!==this.epoch)throw new Error('계정이 전환되었습니다. 다시 연결하세요.');
+   await this.listFiles();
+   let own=this.files.find(f=>f.ownedByMe);
+   if(!own){
+    let saved;try{saved=localStorage.getItem('academy-own:'+sub)||localStorage.getItem('academy-selected:'+sub);}catch{}
+    if(saved&&validId(saved)){try{const m=await this.meta(saved);if(m.ownedByMe&&this.eligible(m)){this.remember(m);own=m;}}catch(e){if(![403,404].includes(e.status))throw e;}}
+   }
+   if(epoch!==this.epoch)throw new Error('계정이 전환되었습니다. 다시 연결하세요.');
+   const id=own?.id||(await this.initialize()).id;
+   try{localStorage.setItem('academy-own:'+sub,id);}catch{}
+   return id;
+  };
+  const run=globalThis.navigator?.locks?.request?()=>navigator.locks.request('academy-own:'+sub,setup):setup;
+  const promise=run();this.ownSetup=promise;
+  try{return await promise;}finally{if(this.ownSetup===promise)this.ownSetup=null;}
+ }
  select(id){if(!this.files.some(f=>f.id===id))throw new Error('이 계정에 연결되지 않은 자료입니다.');this.selected=id;try{localStorage.setItem('academy-selected:'+this.user.sub,id);}catch{}return {id};}
  async snapshot(id,knownMeta){
   const meta=knownMeta||await this.meta(id);if(meta.id!==id||!this.eligible(meta))throw new Error('접근할 수 있는 학원 자료가 아닙니다.');
