@@ -23,7 +23,7 @@ export class GoogleStore{
   if(this.epoch!==epoch)throw new Error('계정이 전환되었습니다. 다시 연결하세요.');
   if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/userinfo.email'))throw new Error('이 앱에서 사용하는 파일 접근과 이메일 확인 권한을 승인해 주세요.');
   this.token=response.access_token;this.expires=Date.now()+Number(response.expires_in||3500)*1000-30000;
-  const identity=await this.http('https://www.googleapis.com/oauth2/v3/userinfo');
+  const identity=await this.http('https://openidconnect.googleapis.com/v1/userinfo');
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
   await this.listFiles();
@@ -39,8 +39,8 @@ export class GoogleStore{
   this.assertSession();const epoch=this.epoch,token=this.token;
   for(let attempt=0;;attempt++){
    let response;
-   try{response=await this.fetcher(url,{method,headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
-   catch{throw new Error(method==='GET'?'인터넷 연결을 확인하세요.':'저장 응답을 받지 못했습니다. 새로고침으로 저장 여부를 먼저 확인하세요.');}
+   try{response=await this.fetcher(url,{method,signal:AbortSignal.timeout(25000),headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
+   catch{const stage=url.includes('/userinfo')?'구글 계정 확인':url.startsWith(SHEETS)?'구글 시트 연결':'구글 드라이브 연결';throw new Error(method==='GET'?stage+' 응답을 받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러주세요.':stage+' 저장 응답을 받지 못했습니다. 새로고침으로 저장 여부를 먼저 확인하세요.');}
    if(this.epoch!==epoch)throw new Error('계정이 바뀌어 이전 계정의 요청을 중단했습니다.');
    if(response.status===401){this.token='';const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
    if(readRetry&&[429,500,502,503].includes(response.status)&&attempt<3){await new Promise(r=>setTimeout(r,500*2**attempt));continue;}
