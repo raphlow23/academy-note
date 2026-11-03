@@ -68,3 +68,4 @@
 .credit-one,.credit-one .namebutton,.credit-one .balance,.credit-one small,.credit-one b{color:#1d5dce!important}
 .credit-last,.credit-last .namebutton,.credit-last .balance,.credit-last small,.credit-last b,.lastlesson,.creditnotice{color:#d32f2f!important}
 .creditnotice,.lastlesson{background:#ffebee}
+.student-name{color:var(--ink,#20232c)!important}
