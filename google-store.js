@@ -10,7 +10,7 @@ const stamp=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'num
 const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 
 export class GoogleStore{
- constructor({fetcher=fetch,config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.onSignOut=()=>{};}
+ constructor({fetcher=fetch,config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};}
  get configured(){return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(this.config.clientId);}
  async signIn(){
   if(!this.configured)throw new Error('구글 로그인 연결 설정이 아직 준비되지 않았습니다.');
@@ -27,13 +27,13 @@ export class GoogleStore{
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
   await this.listFiles();
-  const saved=localStorage.getItem('academy-selected:'+this.user.sub);
+  let saved=null;try{saved=localStorage.getItem('academy-selected:'+this.user.sub);}catch{}
   this.selected=this.files.some(f=>f.id===saved)?saved:this.files.find(f=>f.ownedByMe)?.id||this.files[0]?.id||'';
   const invited=new URL(location.href).searchParams.get('workspace');
   if(invited&&validId(invited)){try{const meta=await this.meta(invited);if(meta.ownedByMe||meta.capabilities?.canEdit){this.remember(meta);this.selected=invited;}}catch{}}
   return this.user;
  }
- disconnect(){this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.onSignOut();}
+ disconnect(){this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.onSignOut();}
  assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}
  async http(url,{method='GET',body,readRetry=method==='GET'}={}){
   this.assertSession();const epoch=this.epoch,token=this.token;
@@ -58,9 +58,9 @@ export class GoogleStore{
  }
  remember(meta){if(!this.eligible(meta))throw new Error('새 학원 노트 자료가 아닙니다. 기존 자료는 이관 기능으로 연결하세요.');this.files=this.files.filter(f=>f.id!==meta.id).concat(meta);}
  workspaces(){return this.files.map(f=>({id:f.id,name:f.name,own:!!f.ownedByMe}));}
- select(id){if(!this.files.some(f=>f.id===id))throw new Error('이 계정에 연결되지 않은 자료입니다.');this.selected=id;localStorage.setItem('academy-selected:'+this.user.sub,id);return {id};}
- async snapshot(id){
-  const meta=await this.meta(id);if(!this.eligible(meta))throw new Error('접근할 수 있는 학원 자료가 아닙니다.');
+ select(id){if(!this.files.some(f=>f.id===id))throw new Error('이 계정에 연결되지 않은 자료입니다.');this.selected=id;try{localStorage.setItem('academy-selected:'+this.user.sub,id);}catch{}return {id};}
+ async snapshot(id,knownMeta){
+  const meta=knownMeta||await this.meta(id);if(meta.id!==id||!this.eligible(meta))throw new Error('접근할 수 있는 학원 자료가 아닙니다.');
   const names=Object.keys(TABLES),params=new URLSearchParams();names.forEach(n=>params.append('ranges',range(BASE(n))));params.append('ranges',range(LOG));params.set('valueRenderOption','UNFORMATTED_VALUE');
   const data=await this.http(SHEETS+'/'+id+'/values:batchGet?'+params);
   const base=parseBase(data.valueRanges),rows=data.valueRanges?.[names.length]?.values||[];
@@ -73,12 +73,20 @@ export class GoogleStore{
   const folded=replay(base,events);return {meta,base,events,...folded};
  }
  async settle(id,snapshot){
+  await this.ensureViewCapacity(id,snapshot.tables);
   const data=[];
   snapshot.outcomes.forEach((o,i)=>{
    const e=snapshot.events[i],record=(o.record||[]).slice(0,13),values=[o.status,o.error||'',o.target||'',record[0]||'',...Array.from({length:13},(_,j)=>record[j]??'')];
    if(JSON.stringify(Array.from({length:17},(_,j)=>e.stored[j+5]??''))!==JSON.stringify(values))data.push({range:range(LOG,'F'+e.row+':V'+e.row),values:[values]});
   });
   if(data.length)await this.http(SHEETS+'/'+id+'/values:batchUpdate',{method:'POST',body:{valueInputOption:'RAW',data}});
+ }
+ async ensureViewCapacity(id,tables){
+  if(Math.max(...Object.values(tables).map(rows=>rows.length))<900)return;
+  let meta=this.gridMeta.get(id);if(!meta){const r=await this.http(SHEETS+'/'+id+'?fields=sheets(properties(sheetId,title,gridProperties(rowCount)))');meta=new Map(r.sheets.map(s=>[s.properties.title,s.properties]));this.gridMeta.set(id,meta);}
+  const sizes=Object.fromEntries(Object.entries(tables).map(([name,rows])=>[name,rows.length+20]));sizes['수강현황']=tables['수강생'].length+20;const requests=[];
+  for(const [name,count] of Object.entries(sizes)){const sh=meta.get(name);if(!sh)throw new Error('조회용 '+name+' 탭이 없습니다. 원본을 확인하세요.');if(count>sh.gridProperties.rowCount)requests.push({appendDimension:{sheetId:sh.sheetId,dimension:'ROWS',length:Math.max(500,count-sh.gridProperties.rowCount)}});}
+  if(requests.length){await this.http(SHEETS+'/'+id+':batchUpdate',{method:'POST',body:{requests}});for(const r of requests){const sh=[...meta.values()].find(s=>s.sheetId===r.appendDimension.sheetId);sh.gridProperties.rowCount+=r.appendDimension.length;}}
  }
  async load(id=this.selected){
   if(!this.user)throw new Error('구글 계정으로 로그인하세요.');
@@ -112,7 +120,7 @@ export class GoogleStore{
   if(index<0){
    replay(snapshot.tables,[pending]).outcomes.forEach(o=>{if(o.status==='거절')throw new Error(o.error);});
    await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:[[pending.id,action,pending.actor,pending.at,JSON.stringify(pending.data),'처리 대기','','','',...Array(13).fill('')]]}});
-   snapshot=await this.snapshot(id);index=snapshot.events.findIndex(e=>e.id===pending.id);
+   snapshot=await this.snapshot(id,snapshot.meta);index=snapshot.events.findIndex(e=>e.id===pending.id);
   }
   if(index<0)throw new Error('저장 결과를 확인할 수 없습니다. 새로고침하세요.');
   await this.settle(id,snapshot);this.latestTables=snapshot.tables;this.latestWorkspace=id;const outcome=snapshot.outcomes[index];this.pending.delete(fingerprint);
