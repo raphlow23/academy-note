@@ -63,3 +63,8 @@
  @media(max-width:600px){.daydialog{width:calc(100% - 16px);max-height:calc(100dvh - 16px);padding:0 15px 16px;border-radius:23px}.daydialog>.dialogtop{padding:14px 0 12px}.daydialog>.dialogtop h2{font-size:15px}.daydialog #dayPanel{grid-template-columns:minmax(0,1fr);gap:10px}.daydialog .daytitle h2{font-size:18px}.daydialog .timeslot{padding:13px}.daydialog .slotpeople>span{font-size:14px}.daydialog .slotpeople small{font-size:12px}}
 }
 @media print{.monthslots{display:block;overflow:visible}.slotchip{break-inside:avoid}.slotend{display:inline}}
+/* Text status is consistent even when several students share one time slot. */
+.credit-default,.credit-default .namebutton,.credit-default .balance,.credit-default small,.credit-default b{color:var(--ink,#20232c)!important}
+.credit-one,.credit-one .namebutton,.credit-one .balance,.credit-one small,.credit-one b{color:#1d5dce!important}
+.credit-last,.credit-last .namebutton,.credit-last .balance,.credit-last small,.credit-last b,.lastlesson,.creditnotice{color:#d32f2f!important}
+.creditnotice,.lastlesson{background:#ffebee}

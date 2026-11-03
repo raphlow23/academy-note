@@ -9,3 +9,10 @@ export function studentCreditState(studentId,data){
 }
 
 export function isLastLesson(booking,data){return booking.status!=='취소'&&studentCreditState(booking.studentId,data).lastBookingId===booking.id;}
+
+export function creditTone(studentId,data,booking){
+ const state=studentCreditState(studentId,data);
+ if(booking?.status==='취소')return 'credit-default';
+ if(booking?isLastLesson(booking,data):state.exhausted)return 'credit-last';
+ return state.remaining===1?'credit-one':'credit-default';
+}
