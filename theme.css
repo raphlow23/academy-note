@@ -192,12 +192,32 @@
 
 /* Weekdays and each day's class times stay on a single horizontal row. */
 @media screen{
- #scheduleList .scheduleday{grid-template-columns:44px minmax(0,1fr);align-items:start;gap:10px;padding:12px 0;min-width:0}
- #scheduleList .scheduleday>b{padding-top:13px;font-size:12px;white-space:nowrap}
- #scheduleList .scheduleday>div{display:flex;flex-wrap:nowrap;gap:6px;min-width:0;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:thin;padding-bottom:3px;touch-action:pan-x pan-y pinch-zoom}
- #scheduleList .schedulepill{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:4px;width:auto;min-width:0;min-height:44px;margin:0;padding:0 0 0 9px;font-size:11px;line-height:1.3;white-space:nowrap;font-variant-numeric:tabular-nums;border-radius:12px}
- #scheduleList .schedulepill button{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:0;padding:0;font-size:23px;line-height:1;border-radius:12px;background:transparent}
- #scheduleList .scheduleday>div>.muted{min-height:44px;display:flex;align-items:center}
+ #scheduleList .scheduleday{grid-template-columns:30px minmax(0,1fr);align-items:center;gap:4px;padding:9px 0;min-width:0}
+ #scheduleList .scheduleday>b{padding-top:0;font-size:10px;white-space:nowrap}
+ #scheduleList .scheduleday>div{display:grid;grid-template-columns:repeat(var(--time-count,1),minmax(0,1fr));gap:3px;min-width:0;container:setting-times / inline-size}
+ #scheduleList .schedulepill{display:flex;align-items:center;justify-content:center;gap:1px;width:100%;min-width:0;min-height:30px;margin:0;padding:0 2px;font-size:clamp(5px,calc((100cqw / var(--time-count,1) - 19px) / 6),12px);line-height:1.3;white-space:nowrap;font-variant-numeric:tabular-nums;border-radius:8px}
+ #scheduleList .schedulepill button{flex:0 0 12px;width:12px;min-width:12px;height:30px;min-height:30px;margin:0;padding:0;font-size:13px;line-height:1;border-radius:4px;background:transparent}
+ #scheduleList .scheduleday>div>.muted{min-height:30px;display:flex;align-items:center}
 }
 
-@media screen{#shell:has(#closuresView:not([hidden])){touch-action:auto}}
+
+
+/* Leave more of the viewport to the calendar. */
+@media screen{
+ .calendar-mode main{padding-top:8px}
+ .calendar-mode .topline{min-height:26px;margin-bottom:4px;font-size:10px}
+ .calendar-mode .heading{min-height:36px;margin-bottom:6px;padding:0;gap:8px;flex-wrap:nowrap}
+ .calendar-mode .heading>div:first-child{flex:1;min-width:0}
+ .calendar-mode .heading h1{font-size:21px;line-height:1.2;margin:0}
+ .calendar-mode .heading .eyebrow,.calendar-mode #pageDesc{display:none}
+ .calendar-mode .heading>.tools{gap:5px;flex-wrap:nowrap}
+ .calendar-mode .heading .tools button{height:36px;min-height:36px;padding:5px 11px;font-size:12px}
+ .calendar-mode .heading .tools #refresh{width:36px;height:36px;min-width:36px;min-height:36px;flex-basis:36px;padding:7px;border-radius:12px}
+ .calendar-mode .heading .control-icon{width:22px;height:22px}
+ .calendar-mode #stats{gap:6px;margin-bottom:8px}
+ .calendar-mode #stats .stat{display:flex;align-items:center;justify-content:space-between;gap:4px;min-height:32px;padding:5px 10px;border-radius:12px}
+ .calendar-mode #stats .stat span{font-size:10px}
+ .calendar-mode #stats .stat strong{font-size:19px;line-height:1.1;margin:0}
+ .calendar-mode #stats .stat small{font-size:9px;margin-left:2px}
+ @media(max-width:600px){.calendar-mode .topline{font-size:9px}.calendar-mode #stats .stat span{font-size:9px}.calendar-mode #stats .stat{padding:5px 8px}}
+}
