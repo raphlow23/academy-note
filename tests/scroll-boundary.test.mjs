@@ -17,10 +17,10 @@ test('긴 페이지의 일반 내부 영역에서는 페이지 스크롤을 계�
  const root=box(2000,800,200),inside=box(200,200);inside.parentElement=root;
  assert.equal(canScrollFrom(inside,-20,{root,style:e=>e.css}),true);
 });
-function fixture(height=500,modal=false,onPull=()=>{}){
+function fixture(height=500,modal=false,onPull=()=>{},extra={}){
  const root={...box(height,500),tagName:'HTML',closest:()=>null},listeners={},options={};
  const doc={scrollingElement:root,defaultView:{innerWidth:390},querySelector:()=>modal?{}:null,addEventListener:(type,fn,o)=>{listeners[type]=fn;options[type]=o;}};
- installScrollBoundary(doc,{onPull});const touch=(x,y)=>({identifier:1,clientX:x,clientY:y});
+ installScrollBoundary(doc,{...extra,onPull});const touch=(x,y)=>({identifier:1,clientX:x,clientY:y});
  return {root,doc,listeners,options,start:(x=200,y=200)=>listeners.touchstart({target:root,touches:[touch(x,y)]}),move:(x,y)=>{let prevented=false;listeners.touchmove({target:root,touches:[touch(x,y)],cancelable:true,preventDefault:()=>prevented=true});return prevented;}};
 }
 test('스크롤 없는 화면의 세로 끌기만 막고 좌우 메뉴 스와이프는 유지한다',()=>{
@@ -50,4 +50,28 @@ test('스크롤 끝에서 짧게 움직이고 손을 떼거나 가로로 밀면 
 test('긴 목록 일반 스크롤 및 팝업 배경에는 탄성을 적용하지 않는다',()=>{
  const pulls=[],a=fixture(2000,false,(offset,active)=>pulls.push([offset,active]));a.start();a.move(200,180);assert(pulls.every(([offset])=>offset===0));
  const modal=[],b=fixture(500,true,(offset,active)=>modal.push([offset,active]));b.start();b.move(200,240);assert(modal.every(([offset])=>offset===0));
+});
+
+
+test('맨 위에서 110px 이상 아래로 당긴 후 놓으면 한 번만 새로고침한다',()=>{
+ let refreshes=0;const hints=[],a=fixture(500,false,()=>{},{canRefresh:()=>true,onRefresh:()=>refreshes++,onRefreshHint:(ready,visible)=>hints.push([ready,visible])});
+ a.start();a.move(200,240);assert.equal(refreshes,0);assert.deepEqual(hints.at(-1),[false,true]);
+ a.move(200,320);assert.deepEqual(hints.at(-1),[true,true]);assert.equal(refreshes,0);
+ a.listeners.touchend();assert.equal(refreshes,1);assert.deepEqual(hints.at(-1),[false,false]);a.listeners.touchend();assert.equal(refreshes,1);
+ let blocked=0;a.listeners.click({detail:1,preventDefault:()=>blocked++,stopImmediatePropagation:()=>blocked++});assert.equal(blocked,2);
+});
+test('짧은 바운스·반대 방향·가로 이동·취소 제스처는 새로고침하지 않는다',()=>{
+ let count=0;const a=fixture(500,false,()=>{},{canRefresh:()=>true,onRefresh:()=>count++});
+ a.start();a.move(200,260);a.listeners.touchend();a.start();a.move(200,80);a.listeners.touchend();
+ a.start();a.move(100,210);a.move(100,340);a.listeners.touchend();
+ a.start();a.move(200,340);a.listeners.touchcancel();assert.equal(count,0);
+});
+test('중간 스크롤·모달·저장이나 입력 중 허용되지 않은 상태에서는 새로고침하지 않는다',()=>{
+ let count=0,allowed=true;const a=fixture(2000,false,()=>{},{canRefresh:()=>allowed,onRefresh:()=>count++});
+ a.root.scrollTop=200;a.start();a.root.scrollTop=0;a.move(200,340);a.listeners.touchend();
+ a.start();a.move(200,340);allowed=false;a.listeners.touchend();
+ const b=fixture(500,true,()=>{},{canRefresh:()=>true,onRefresh:()=>count++});b.start();b.move(200,340);b.listeners.touchend();assert.equal(count,0);
+});
+test('새로고침 준비 후 다시 짧게 되돌리면 실행하지 않는다',()=>{
+ let count=0;const a=fixture(500,false,()=>{},{canRefresh:()=>true,onRefresh:()=>count++});a.start();a.move(200,340);a.move(200,250);a.listeners.touchend();assert.equal(count,0);
 });

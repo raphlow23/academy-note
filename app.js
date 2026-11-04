@@ -1,4 +1,4 @@
-import {installScrollBoundary} from './scroll-boundary.js?v=20261104-softedge1';
+import {installScrollBoundary} from './scroll-boundary.js?v=20261104-pullrefresh1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
 import {installMenuSwipe} from './menu-swipe.js?v=20261104-formswipe1';
 import {weeklyClosureAtDate,closureReason} from './closure-history.js?v=20261104-closure1';
@@ -9,7 +9,11 @@ import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=
 import {GoogleStore} from './google-store.js?v=20261104-durable1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
-installScrollBoundary(document,{onPull:(offset,active)=>{
+installScrollBoundary(document,{
+ canRefresh:()=>!!state.data&&!state.pending&&!menuAnimating&&!appReloading&&!dirtySettings.size&&navigator.onLine&&!document.querySelector('dialog[open]')&&!['shareEmail','joinLink'].some(id=>document.getElementById(id)?.value.trim()),
+ onRefresh:()=>document.getElementById('refresh')?.click(),
+ onRefreshHint:(ready,visible)=>{const hint=document.getElementById('pullRefreshNotice');if(hint){hint.hidden=!visible;hint.textContent=ready?'↻ 놓으면 새로고침':'↓ 아래로 더 당겨 새로고침';hint.classList.toggle('ready',ready);}},
+ onPull:(offset,active)=>{
  const shell=document.getElementById('shell');if(!shell)return;
  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  shell.style.transition=active||reduced?'none':'translate 190ms cubic-bezier(.2,.8,.2,1)';

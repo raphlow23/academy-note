@@ -221,3 +221,5 @@
  .calendar-mode #stats .stat small{font-size:9px;margin-left:2px}
  @media(max-width:600px){.calendar-mode .topline{font-size:9px}.calendar-mode #stats .stat span{font-size:9px}.calendar-mode #stats .stat{padding:5px 8px}}
 }
+
+.pull-refresh-notice{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;translate:-50% 0;z-index:1000;pointer-events:none;padding:9px 14px;border:1px solid #dce5f4;border-radius:24px;background:#fff;color:#536986;box-shadow:0 3px 16px #1835611a;font-size:12px;white-space:nowrap}.pull-refresh-notice.ready{background:#193b78;color:#fff;border-color:#193b78}
