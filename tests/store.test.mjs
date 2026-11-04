@@ -72,6 +72,7 @@ import {LOG_HEADERS} from '../workbook.js';
 const id='spreadsheet_'+randomUUID().replaceAll('-','');
 const person='owner@example.test';
 function fixture(){
+ const outboxEntries=new Map(),outboxStorage={getItem:k=>outboxEntries.get(k)||null,setItem:(k,v)=>outboxEntries.set(k,v),removeItem:k=>outboxEntries.delete(k)};
  const s={id:randomUUID(),version:0,name:'김하늘',phone:'',since:'2022-01-01',note:'',active:true,priorCount:0,priorPaid:0};
  const p={id:randomUUID(),studentId:s.id,date:'2026-11-01',kind:'정규권',credits:1,amount:10000,note:''};
  const e=(action,data)=>({id:randomUUID(),action,data,actor:person,at:'2026-11-04 10:00:00'});
@@ -89,7 +90,7 @@ function fixture(){
   else throw new Error('Unexpected test URL '+u.pathname);
   return {ok:true,status:200,json:async()=>structuredClone(out)};
  };
- function client(email=person){const store=new GoogleStore({fetcher});store.appUrl=()=> 'https://example.test/academy/';store.token='token-'+email;store.expires=Date.now()+3600000;store.user={email,sub:email,name:email,role:'admin'};store.files=[meta];store.selected=id;return store;}
+ function client(email=person){const store=new GoogleStore({fetcher,outboxStorage});store.appUrl=()=> 'https://example.test/academy/';store.token='token-'+email;store.expires=Date.now()+3600000;store.user={email,sub:email,name:email,role:'admin'};store.files=[meta];store.selected=id;return store;}
  const command=()=>({id:randomUUID(),studentId:s.id,passId:p.id,date:'2026-11-07',time:'11:00',endTime:'13:00',note:''});
  return {client,command,rows,calls,base,lose(){loseNextAppend=true;}};
 }
@@ -167,3 +168,47 @@ test('다른 탭의 계정 변경은 현재 화면과 탭 토큰만 지우고 �
  const key=[...local.keys()][0],replacement=JSON.stringify({token:'new-account-token',expires:Date.now()+120000,savedAt:Date.now()});local.set(key,replacement);listeners[0]({key,newValue:replacement});
  assert.equal(a.token,'');assert.equal(cleared,1);assert.equal(session.size,0);assert.equal(local.get(key),replacement);
 }));
+
+
+test('전송 후 응답이 사라지고 앱이 재시작되어도 같은 작업으로 복구하고 한 번만 차감한다',async()=>{
+ const f=fixture(),a=f.client(),cmd=f.command();f.lose();
+ await assert.rejects(a.request('book',cmd,id),/저장 응답/);
+ assert.equal(a.unsent().length,1);
+ const restarted=f.client();const saved=await restarted.request('load',{},id);
+ assert.equal(saved.bookings.length,1);assert.equal(saved.bookings[0].id,cmd.id);
+ assert.equal(f.rows.length,2);assert.equal(restarted.unsent().length,0);
+});
+test('전송 전 네트워크 단절도 기기에 대기하고 다시 열면 Google 저장으로 복구한다',async()=>{
+ const f=fixture(),a=f.client(),cmd=f.command();a.fetcher=async()=>{throw Error('offline');};
+ await assert.rejects(a.request('book',cmd,id),/응답/);assert.equal(a.unsent().length,1);assert.equal(f.rows.length,1);
+ const restarted=f.client();const saved=await restarted.request('load',{},id);
+ assert.equal(saved.bookings[0].id,cmd.id);assert.equal(restarted.unsent().length,0);
+});
+test('다른 로그인 계정은 원래 계정의 미전송 명령을 읽거나 전송하지 않는다',async()=>{
+ const f=fixture(),a=f.client();a.fetcher=async()=>{throw Error('offline');};
+ await assert.rejects(a.request('book',f.command(),id));
+ const other=f.client('other@example.test');assert.equal(other.unsent().length,0);
+ assert.equal((await other.request('load',{},id)).bookings.length,0);assert.equal(a.unsent().length,1);
+});
+test('일괄 등록 응답 유실 뒤 앱 재시작도 학생·납부·예약을 중복시키지 않는다',async()=>{
+ const f=fixture(),a=f.client(),d=registration();f.lose();await assert.rejects(a.request('registerAndBook',d,id));
+ const restarted=f.client(),saved=await restarted.request('load',{},id);
+ assert.equal(saved.students.filter(s=>s.id===d.student.id).length,1);
+ assert.equal(saved.transactions.filter(t=>t.id===d.transaction.id).length,1);
+ assert.equal(saved.bookings.filter(b=>b.id===d.booking.id).length,1);
+ assert.equal(f.rows.length,4);assert.equal(restarted.unsent().length,0);
+});
+test('유효하지 않은 예약은 재시도 대기열에서 제거하고 저장 성공으로 표시하지 않는다',async()=>{
+ const f=fixture(),a=f.client();await assert.rejects(a.request('book',{...f.command(),time:'11:15'},id),/30분/);
+ assert.equal(a.unsent().length,0);assert.equal(f.rows.length,1);
+});
+test('기기 임시 저장소가 가득 차면 Google 요청 전에 중단하여 유실 가능한 저장을 시작하지 않는다',async()=>{
+ const f=fixture(),a=f.client();a.outbox.storage={getItem:()=>null,setItem:()=>{throw Error('quota');}};
+ await assert.rejects(a.request('book',f.command(),id),/임시 저장 공간/);assert.equal(f.calls.length,0);
+});
+test('작은 Google 쓰기 요청은 백그라운드 전환 시 계속 전송하도록 keepalive를 사용한다',async()=>{
+ let options;const a=new GoogleStore({fetcher:async(u,o)=>{options=o;return {ok:true,status:200,json:async()=>({})};}});
+ a.token='test-token';a.expires=Date.now()+60000;
+ await a.http('https://sheets.googleapis.com/v4/spreadsheets/test',{method:'POST',body:{values:[['test']]}});
+ assert.equal(options.keepalive,true);
+});

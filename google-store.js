@@ -1,3 +1,4 @@
+import {SaveOutbox} from './save-outbox.js?v=20261104-durable1';
 import {CONFIG} from './config.js?v=20261104-google1';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
@@ -12,7 +13,7 @@ const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 const SESSION_KEY='subong-google-session-v1';
 
 export class GoogleStore{
- constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};globalThis.addEventListener?.('storage',e=>{if(e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
+ constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG,outboxStorage}={}){if(outboxStorage===undefined)try{outboxStorage=globalThis.localStorage;}catch{}this.outbox=new SaveOutbox(outboxStorage);this.flushing=null;this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};globalThis.addEventListener?.('storage',e=>{if(e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
  get configured(){return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(this.config.clientId);}
  async signIn(){
   if(!this.configured)throw new Error('구글 로그인 연결 설정이 아직 준비되지 않았습니다.');
@@ -50,11 +51,41 @@ export class GoogleStore{
  }
  disconnect({forget=true}={}){if(forget)this.forgetSession();this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.ownSetup=null;this.onSignOut();}
  assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';this.forgetSession();const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}
+ unsent(id){return this.outbox.read(this.user?.sub).filter(r=>!id||r.workspace===id);}
+ async flushUnsent(id,locked=false){
+  if(this.flushing)return this.flushing;
+  const sub=this.user?.sub,epoch=this.epoch;
+  const run=async()=>{
+   const results=new Map();
+   for(const row of this.outbox.read(sub).filter(r=>r.workspace===id)){
+    this.assertSession();if(this.epoch!==epoch||this.user?.sub!==sub)throw new Error('원래 계정으로 다시 연결하여 저장을 마치세요.');
+    if(!this.files.some(f=>f.id===id))throw new Error('미전송 자료의 파일 접근 권한을 확인하세요.');
+    this.pending.set(JSON.stringify([id,row.action,row.data]),{id:row.id,action:row.action,data:clone(row.data),actor:row.actor,at:row.at});
+    try{const result=row.action==='registerAndBook'?await this.registerAndBook(row.data,id):await this.mutate(row.action,row.data,id);this.outbox.remove(sub,row.id);results.set(row.id,result);}
+    catch(e){if(e.permanent||[400,403,404].includes(e.status)){this.outbox.remove(sub,row.id);this.pending.delete(JSON.stringify([id,row.action,row.data]));}throw e;}
+   }return results;
+  };
+  const execute=()=>!locked&&globalThis.navigator?.locks?.request?navigator.locks.request('subong-save:'+sub,run):run();
+  const promise=execute();this.flushing=promise;try{return await promise;}finally{if(this.flushing===promise)this.flushing=null;}
+ }
+ async durableSave(action,data,id){
+  const sub=this.user.sub,epoch=this.epoch;
+  const run=async()=>{
+   this.assertSession();if(epoch!==this.epoch||this.user?.sub!==sub)throw new Error('계정이 변경되었습니다.');
+   const fingerprint=JSON.stringify([id,action,data]);
+   if(this.unsent().some(row=>row.fingerprint!==fingerprint))throw new Error('구글 저장 대기 중인 내용을 먼저 다시 저장하세요.');
+   const row=this.outbox.add(sub,id,action,data,this.user.email,stamp());
+   const results=await this.flushUnsent(id,true);
+   if(results.has(row.id))return results.get(row.id);
+   throw new Error('구글 저장 결과를 확인할 수 없습니다. 다시 불러와 확인하세요.');
+  };
+  return globalThis.navigator?.locks?.request?navigator.locks.request('subong-save:'+sub,run):run();
+ }
  async http(url,{method='GET',body,readRetry=method==='GET'}={}){
   this.assertSession();const epoch=this.epoch,token=this.token;
   for(let attempt=0;;attempt++){
    let response;
-   try{response=await this.fetcher(url,{method,signal:AbortSignal.timeout(25000),headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
+   try{response=await this.fetcher(url,{method,...(body!==undefined&&new TextEncoder().encode(JSON.stringify(body)).length<48000?{keepalive:true}:{}),signal:AbortSignal.timeout(25000),headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
    catch{const stage=url.includes('/userinfo')?'구글 계정 확인':url.startsWith(SHEETS)?'구글 시트 연결':'구글 드라이브 연결';throw new Error(method==='GET'?stage+' 응답을 받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러주세요.':stage+' 저장 응답을 받지 못했습니다. 새로고침으로 저장 여부를 먼저 확인하세요.');}
    if(this.epoch!==epoch)throw new Error('계정이 바뀌어 이전 계정의 요청을 중단했습니다.');
    if(response.status===401){this.disconnect();const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
@@ -160,19 +191,19 @@ export class GoogleStore{
   this.remember(meta);return this.select(id);
  }
  async mutate(action,data,id){
-  if(['saveSchedule','saveClosures'].includes(action)&&!data.effectiveFrom)throw new Error('적용 시작일을 선택하세요. 이전 화면을 사용 중이면 페이지를 새로고침해 주세요.');
+  if(['saveSchedule','saveClosures'].includes(action)&&!data.effectiveFrom)throw Object.assign(new Error('적용 시작일을 선택하세요. 이전 화면을 사용 중이면 페이지를 새로고침해 주세요.'),{permanent:true});
   this.latestTables=null;this.latestWorkspace='';
   const fingerprint=JSON.stringify([id,action,data]),pending=this.pending.get(fingerprint)||{id:crypto.randomUUID(),actor:this.user.email,at:stamp(),action,data:clone(data)};
   this.pending.set(fingerprint,pending);
   let snapshot=await this.snapshot(id),index=snapshot.events.findIndex(e=>e.id===pending.id);
   if(index<0){
-   replay(snapshot.tables,[pending]).outcomes.forEach(o=>{if(o.status==='거절')throw new Error(o.error);});
+   replay(snapshot.tables,[pending]).outcomes.forEach(o=>{if(o.status==='거절')throw Object.assign(new Error(o.error),{permanent:true});});
    await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:[[pending.id,action,pending.actor,pending.at,JSON.stringify(pending.data),'처리 대기','','','',...Array(13).fill('')]]}});
    snapshot=await this.snapshot(id,snapshot.meta);index=snapshot.events.findIndex(e=>e.id===pending.id);
   }
   if(index<0)throw new Error('저장 결과를 확인할 수 없습니다. 새로고침하세요.');
   await this.settle(id,snapshot);this.latestTables=snapshot.tables;this.latestWorkspace=id;const outcome=snapshot.outcomes[index];this.pending.delete(fingerprint);
-  if(outcome.status==='거절')throw new Error(outcome.error);
+  if(outcome.status==='거절')throw Object.assign(new Error(outcome.error),{permanent:true});
   if(!outcome.result)throw new Error('기록을 다시 불러와 저장 결과를 확인하세요.');
   return outcome.result;
  }
@@ -180,30 +211,30 @@ export class GoogleStore{
   d=clone(d);
   for(const [obj,keys] of [[d.student,['name','phone','note']],[d.transaction,['note']],[d.booking,['note']]])if(obj)for(const k of keys)if(typeof obj[k]==='string')obj[k]=obj[k].trim();
   const studentId=d.student?.id||d.transaction?.studentId;
-  if(d.transaction&&d.transaction.studentId!==studentId||d.booking&&(d.booking.studentId!==studentId||d.booking.passId!==d.transaction?.id))throw new Error('같은 수강생의 수강권과 예약을 선택하세요.');
+  if(d.transaction&&d.transaction.studentId!==studentId||d.booking&&(d.booking.studentId!==studentId||d.booking.passId!==d.transaction?.id))throw Object.assign(new Error('같은 수강생의 수강권과 예약을 선택하세요.'),{permanent:true});
   this.latestTables=null;this.latestWorkspace='';
   let snapshot=await this.snapshot(id);const current=tablesToData(snapshot.tables),commands=[];
   const add=(action,data,existing,fields)=>{
    if(!data)return;
    if(existing){
-    if(fields.some(k=>existing[k]!==data[k]))throw new Error('이미 저장된 등록·납부 내용과 다릅니다. 저장된 내역을 확인하고 예약만 다시 진행하세요.');
-    if(action==='book'&&existing.status==='취소')throw new Error('이미 취소된 예약입니다. 새 예약으로 등록하세요.');
+    if(fields.some(k=>existing[k]!==data[k]))throw Object.assign(new Error('이미 저장된 등록·납부 내용과 다릅니다. 저장된 내역을 확인하고 예약만 다시 진행하세요.'),{permanent:true});
+    if(action==='book'&&existing.status==='취소')throw Object.assign(new Error('이미 취소된 예약입니다. 새 예약으로 등록하세요.'),{permanent:true});
    }else commands.push({action,data});
   };
   add('saveStudent',d.student,current.students.find(x=>x.id===d.student?.id),['name','phone','since','active','note','priorCount','priorPaid']);
   add('addTransaction',d.transaction,current.transactions.find(x=>x.id===d.transaction?.id),['studentId','date','kind','credits','amount','note']);
   add('book',d.booking,current.bookings.find(x=>x.id===d.booking?.id),['studentId','passId','date','time','endTime','note']);
-  if(!d.student&&!d.transaction)throw new Error('등록할 수강생 또는 수강권을 확인하세요.');
-  const at=stamp(),events=commands.map(c=>({id:crypto.randomUUID(),...c,actor:this.user.email,at}));
+  if(!d.student&&!d.transaction)throw Object.assign(new Error('등록할 수강생 또는 수강권을 확인하세요.'),{permanent:true});
+  const at=stamp(),events=commands.map(c=>({id:'registration:'+c.action+':'+c.data.id,...c,actor:this.user.email,at}));
   const checked=replay(snapshot.tables,events);const invalid=checked.outcomes.find(o=>o.status==='거절');
-  if(invalid)throw new Error(invalid.error);
+  if(invalid)throw Object.assign(new Error(invalid.error),{permanent:true});
   if(events.length){
    await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});
    snapshot=await this.snapshot(id,snapshot.meta);
   }
   await this.settle(id,snapshot);this.latestTables=snapshot.tables;this.latestWorkspace=id;
   const rejected=snapshot.outcomes.find((o,i)=>events.some(e=>e.id===snapshot.events[i].id)&&o.status==='거절');
-  if(rejected)throw new Error('일부 내용은 저장됐습니다. 목록·납부 내역을 확인하세요. '+rejected.error);
+  if(rejected)throw Object.assign(new Error('일부 내용은 저장됐습니다. 목록·납부 내역을 확인하세요. '+rejected.error),{permanent:true});
   return {studentId:d.student?.id||d.transaction.studentId,bookingId:d.booking?.id||''};
  }
  async permissions(id){const r=await this.http(DRIVE+'/files/'+id+'/permissions?fields=permissions(id,type,role,emailAddress,displayName)');return (r.permissions||[]).filter(p=>p.role!=='owner').map(p=>({id:p.id,email:p.emailAddress||'',name:p.displayName||'',type:p.type,role:p.role}));}
@@ -229,14 +260,14 @@ export class GoogleStore{
  async connectFile(){const id=await this.chooseFile();if(!id)return null;const m=await this.meta(id);if(this.eligible(m)){this.remember(m);return this.select(id);}if(!m.ownedByMe)throw new Error('기존 자료 이관은 소유자 계정에서 진행하세요. 공유받은 새 자료는 그대로 연결할 수 있습니다.');const params=new URLSearchParams();Object.keys(TABLES).forEach(n=>params.append('ranges',range(n)));params.set('valueRenderOption','UNFORMATTED_VALUE');const old=await this.http(SHEETS+'/'+id+'/values:batchGet?'+params);const base=parseBase(old.valueRanges);if(!confirm('선택한 기존 자료를 본인 소유의 새 시트로 복사해 연결할까요? 원본은 수정하지 않으며 공유 권한은 새로 설정해야 합니다.'))return null;return this.initialize(base);}
  async request(action,data={},id=this.selected){
   this.assertSession();if(!this.user)throw new Error('로그인하세요.');
-  if(mutations.has(action)){if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');return this.mutate(action,data,id);}
-  if(action==='load')return this.load(id);
+  if(mutations.has(action)){if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');return this.durableSave(action,data,id);}
+  if(action==='load'){for(const workspace of new Set(this.unsent().map(r=>r.workspace)))await this.flushUnsent(workspace);return this.load(id);}
   if(action==='initialize')return this.initialize();
   if(action==='selectWorkspace')return this.select(data.id);
   if(action==='selectOwnWorkspace'){const own=this.files.find(f=>f.ownedByMe);if(!own){this.selected='';return {id:''};}return this.select(own.id);}
   if(action==='joinWorkspace')return this.join(data.link);
   if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');
-  if(action==='registerAndBook')return this.registerAndBook(data,id);
+  if(action==='registerAndBook')return this.durableSave(action,data,id);
   if(action==='autoComplete')return tablesToData((await this.completeElapsed(id)).tables);
   if(action==='listShares'){await this.owner(id);return {permissions:await this.permissions(id)};}
   if(action==='shareWorkspace')return this.share(id,data);
