@@ -72,6 +72,7 @@
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+@media screen{#stats{grid-template-columns:repeat(2,minmax(0,1fr))}.studentlist-title{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;min-width:0}.active-student-count{display:inline-block;padding:4px 8px;background:#edf3ff;color:#435e8c;border-radius:9px;font-size:12px;white-space:nowrap}}
 @media screen{
  .calendar-mode .slotchip:not(.occupied),.slotchip:not(.occupied){background:#f1f2f5;color:#7c8594;box-shadow:none}
  .calendar-mode .slotchip.occupied,.slotchip.occupied{background:#c5dbff;color:#20467f;box-shadow:inset 0 0 0 1px #6892d7;font-weight:700}
