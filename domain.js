@@ -1,4 +1,5 @@
 import {BASELINE_DATE,nextDate,scheduleFromRows,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
+import {bookingHasEnded} from './booking-completion.js?v=20261104-complete1';
 // Pure validation and deterministic ordered replay. No credentials or remote state.
 const TABLES_ = {
   '수강생': ['수강생ID','이름','연락처','최초등록일','메모','재원상태','이관전누적수강횟수','이관전누적납부금액','수정버전','수정일시','기록자'],
@@ -93,6 +94,7 @@ function changeBooking_(u,d){
   if(Number(row[9])!==d.version)throw new Error('다른 사용자가 예약을 변경했습니다. 새로고침 후 다시 시도하세요.');
   if(row[7]==='취소')throw new Error('취소한 예약은 복구하지 않습니다. 새 예약을 등록하세요.');
   if(row[7]===status)return booking_(row);
+  if(d.automatic===true&&(status!=='수강완료'||!bookingHasEnded(booking_(row),Date.parse(event.at.replace(' ','T')+'+09:00'))))throw new Error('수업 종료 후 자동 완료할 수 있습니다.');
   if(status==='수강완료'&&row[1]>Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd'))throw new Error('미래 예약은 수강완료로 표시할 수 없습니다.');
   // 상태만 바꾸므로 완료는 추가 차감이 없고 취소하면 자동으로 잔여가 복구됩니다.
   row[7]=status;row[9]=String(Number(row[9])+1);row[10]=now_();row[11]=u.name;write_('예약',idx+2,row);return booking_(row);

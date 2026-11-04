@@ -102,6 +102,23 @@ test('잘못된 예약 시간은 추가 API 요청 전에 검증하고 시트 �
 
 test('이미 반영된 기록은 다시 불러올 때 불필요한 저장 요청을 반복하지 않는다',async()=>{const f=fixture(),a=f.client();await a.request('book',f.command(),id);const writes=f.calls.filter(c=>c.method==='POST').length;await a.request('load',{},id);await a.request('load',{},id);assert.equal(f.calls.filter(c=>c.method==='POST').length,writes);});
 
+test('지난 수업을 저장된 완료로 자동 전환하고 재접속·두 기기에서도 한 번만 적용하며 완료 취소로 1회를 복구한다',async()=>{
+ const f=fixture(),a=f.client(),b=f.client('editor@example.test');
+ const cmd={...f.command(),date:'2020-01-04'};
+ f.base['수강권납부'][1][3]='2020-01-01';
+ await a.request('book',cmd,id);
+ const both=await Promise.all([a.request('load',{},id),b.request('load',{},id)]);
+ for(const d of both){assert.equal(d.bookings[0].status,'수강완료');assert.equal(d.bookings[0].endTime,'13:00');}
+ const done=await a.request('load',{},id);assert.equal(done.bookings[0].version,2);
+ const autoRows=f.rows.slice(1).filter(r=>JSON.parse(r[4]).automatic&&r[5]==='적용');assert.equal(autoRows.length,1);
+ assert.equal(done.bookings.filter(x=>x.status!=='취소').length,1);
+ await a.request('changeBooking',{id:cmd.id,version:2,status:'취소'},id);
+ const cancelled=await a.request('load',{},id);assert.equal(cancelled.bookings[0].status,'취소');
+ assert.equal(cancelled.bookings.filter(x=>x.status!=='취소').length,0);
+ assert.equal(cancelled.bookings.filter(x=>x.status==='수강완료').length,0);
+ assert.equal(cancelled.transactions[0].credits-cancelled.bookings.filter(x=>x.status!=='취소').length,1);
+});
+
 test('브라우저 보관 기능이 없어도 현재 계정의 자료 선택은 동작한다',()=>{const f=fixture(),a=f.client();assert.equal(a.select(id).id,id);});
 test('1000행을 넘는 자료의 조회용 표를 확장하고 같은 확장을 반복하지 않는다',async()=>{const base=emptyTables();for(let i=0;i<1005;i++)base['예약'].push(['old'+i]);const titles=[...Object.keys(base),'수강현황'];let reads=0;const batches=[];const a=new GoogleStore({fetcher:async(url,o)=>{if(o.method==='GET'){reads++;return {ok:true,status:200,json:async()=>({sheets:titles.map((title,sheetId)=>({properties:{title,sheetId,gridProperties:{rowCount:1000}}}))})};}batches.push(JSON.parse(o.body));return {ok:true,status:200,json:async()=>({})};}});a.token='token-capacity';a.expires=Date.now()+3600000;await a.ensureViewCapacity(id,base);await a.ensureViewCapacity(id,base);assert.equal(reads,1);assert.equal(batches.length,1);assert.equal(batches[0].requests[0].appendDimension.length,500);});
 test('기존 자료 이관 전에 새 파일의 비공개 여부를 확인하고 자동 공유 파일에는 기록을 쓰지 않는다',async()=>{const f=fixture();f.base['수강생'][1][1]='SecretStudent';let createdBody;const urls=[];const a=new GoogleStore({fetcher:async(url,o)=>{urls.push(url);let data;if(url.endsWith('/v4/spreadsheets')){createdBody=JSON.parse(o.body);data={spreadsheetId:id,sheets:createdBody.sheets};}else if(url.includes('/permissions'))data={permissions:[{id:'owner',role:'owner'},{id:'unexpected',type:'domain',role:'reader'}]};else data={id,ownedByMe:true};return {ok:true,status:200,json:async()=>data};}});a.token='token-create';a.expires=Date.now()+3600000;a.user={email:person};await assert.rejects(a.initialize(f.base),/자동 공유/);assert.equal(JSON.stringify(createdBody).includes('SecretStudent'),false);assert.equal(urls.some(u=>u.includes(':batchUpdate')),false);});

@@ -1,5 +1,6 @@
 import {CONFIG} from './config.js?v=20261104-google1';
-import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-history1';
+import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-complete1';
+import {needsCompletion} from './booking-completion.js?v=20261104-complete1';
 import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-subong1';
 
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
@@ -128,10 +129,20 @@ export class GoogleStore{
   const base={user:clone(this.user),workspaces:this.workspaces(),hasOwnWorkspace:this.files.some(f=>f.ownedByMe),appUrl:this.appUrl(),savedAt:stamp(),users:[]};
   if(!id)return {...base,needsSetup:true,...tablesToData(emptyTables()),databaseUrl:'',workspace:null};
   if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');
-  const snapshot=await this.snapshot(id);await this.settle(id,snapshot);const m=snapshot.meta;
+  const snapshot=await this.completeElapsed(id);const m=snapshot.meta;
   return {...base,needsSetup:false,...tablesToData(snapshot.tables),databaseUrl:'https://docs.google.com/spreadsheets/d/'+id+'/edit',workspace:{id,name:m.name,ownedByMe:!!m.ownedByMe,ownerEmail:m.owners?.[0]?.emailAddress||'',shareUrl:this.appUrl()+'?workspace='+id,permissions:[]}};
  }
  appUrl(){return location.origin+location.pathname;}
+ async completeElapsed(id){
+  let snapshot=await this.snapshot(id);const at=stamp();
+  const due=tablesToData(snapshot.tables).bookings.filter(b=>needsCompletion(b,Date.parse(at.replace(' ','T')+'+09:00')));
+  if(due.length){
+   const events=due.map(b=>({id:'auto-complete:'+b.id+':'+b.version,action:'changeBooking',actor:this.user.email,at,data:{id:b.id,version:b.version,status:'수강완료',automatic:true}}));
+   await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});
+   snapshot=await this.snapshot(id,snapshot.meta);
+  }
+  await this.settle(id,snapshot);return snapshot;
+ }
  async initialize(base=emptyTables()){
   if(!this.user)throw new Error('로그인하세요.');
   if(arguments.length===0){const own=this.files.find(f=>f.ownedByMe);if(own)return this.select(own.id);}
@@ -194,10 +205,11 @@ export class GoogleStore{
   if(action==='selectOwnWorkspace'){const own=this.files.find(f=>f.ownedByMe);if(!own){this.selected='';return {id:''};}return this.select(own.id);}
   if(action==='joinWorkspace')return this.join(data.link);
   if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');
+  if(action==='autoComplete')return tablesToData((await this.completeElapsed(id)).tables);
   if(action==='listShares'){await this.owner(id);return {permissions:await this.permissions(id)};}
   if(action==='shareWorkspace')return this.share(id,data);
   if(action==='revokeShare')return this.revoke(id,data);
-  if(action==='export'){const s=await this.snapshot(id);await this.settle(id,s);return {format:'academy-calendar-v3',exportedAt:stamp(),tables:s.tables};}
+  if(action==='export'){const s=await this.completeElapsed(id);return {format:'academy-calendar-v3',exportedAt:stamp(),tables:s.tables};}
   throw new Error('지원하지 않는 작업입니다.');
  }
 }
