@@ -1,6 +1,6 @@
 import {installScrollBoundary} from './scroll-boundary.js?v=20261104-scrolllock1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
-import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipelight1';
+import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipelight2';
 import {weeklyClosureAtDate,closureReason} from './closure-history.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';

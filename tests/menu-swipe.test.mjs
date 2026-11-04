@@ -11,7 +11,7 @@ function setup(){
 test('왼쪽은 다음 메뉴, 오른쪽은 이전 메뉴이며 짧은 터치·지나치게 느린 드래그·세로 방향은 제외한다',()=>{
  assert.equal(swipeStep({dx:-100,dy:8,vertical:8,elapsed:200}),1);
  assert.equal(swipeStep({dx:100,dy:8,vertical:8,elapsed:200}),-1);
- for(const v of [{dx:25,dy:1,elapsed:100},{dx:100,dy:90,elapsed:100},{dx:100,dy:1,elapsed:1900}])assert.equal(swipeStep(v),0);
+ for(const v of [{dx:20,dy:1,elapsed:100},{dx:100,dy:90,elapsed:100},{dx:100,dy:1,elapsed:1900}])assert.equal(swipeStep(v),0);
 });
 test('스크롤하다 방향을 바꿔도 메뉴로 넘어가지 않으며 정상 가로 스와이프만 한 번 처리한다',()=>{
  const a=setup();a.start();a.move(245,260);a.end(120,200);assert.deepEqual(a.moves,[]);
@@ -84,4 +84,15 @@ test('일반 버튼 위에서도 가로 밀기는 이동하고 버튼의 후속 
 test('연속된 짧은 두 번 밀기는 각각 한 메뉴씩 이동한다',()=>{
  const a=setup();a.start();a.move(235,203);a.end(205,205,180);
  a.start();a.move(235,203);a.end(205,205,180);assert.deepEqual(a.moves,[1,1]);
+});
+
+
+test('감도를 한 단계 높여 34px 밀기와 빠른 22px 밀기를 처리하고 작은 손떨림은 계속 제외한다',()=>{
+ assert.equal(swipeStep({dx:-34,dy:6,vertical:6,elapsed:850}),1);
+ assert.equal(swipeStep({dx:22,dy:3,vertical:3,elapsed:100}),-1);
+ assert.equal(swipeStep({dx:22,dy:3,elapsed:300}),0);
+ assert.equal(swipeStep({dx:20,dy:2,elapsed:30}),0);
+ assert.equal(swipeStep({dx:40,dy:34,vertical:34,elapsed:350}),-1);
+ assert.equal(swipeStep({dx:40,dy:34,elapsed:350,axis:'vertical'}),0);
+ const a=setup();a.start();a.move(238,202);a.end(216,206,500);assert.deepEqual(a.moves,[1]);
 });

@@ -1,7 +1,7 @@
 export function swipeStep({dx,dy,vertical=0,elapsed,maxDuration=1800,axis=null}){
  const distance=Math.abs(dx),drift=Math.max(Math.abs(dy),vertical);
- if(elapsed<0||elapsed>maxDuration||axis==='vertical'||distance<26||distance<drift*1.2)return 0;
- if(distance<40&&(elapsed<=0||distance/elapsed<0.25))return 0;
+ if(elapsed<0||elapsed>maxDuration||axis==='vertical'||distance<22||distance<drift*1.15)return 0;
+ if(distance<34&&(elapsed<=0||distance/elapsed<0.20))return 0;
  return dx<0?1:-1;
 }
 function trackAxis(g,dx,dy){
