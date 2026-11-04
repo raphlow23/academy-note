@@ -1,3 +1,4 @@
+import {installScrollBoundary} from './scroll-boundary.js?v=20261104-scrolllock1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
 import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipe1';
 import {weeklyClosureAtDate,closureReason} from './closure-history.js?v=20261104-closure1';
@@ -8,6 +9,7 @@ import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=
 import {GoogleStore} from './google-store.js?v=20261104-padfit1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
+installScrollBoundary(document);
 const backend=new GoogleStore();
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('ko-KR')+'원',today=()=>Academy.date(),uuid=()=>crypto.randomUUID();
@@ -67,7 +69,7 @@ function renderAllData(){renderStats();renderCalendar();renderStudents();const s
 function render(){const d=state.data,admin=d.user.role==='admin';$('userName').textContent=d.user.email||d.user.name;document.querySelectorAll('.admin').forEach(el=>el.hidden=!admin);$('connection').textContent=demo?'화면 미리보기':`최근 불러옴 ${d.savedAt}`;if(d.databaseUrl){$('sheetLink').href=d.databaseUrl;$('xlsxLink').href=d.databaseUrl.replace(/\/edit.*$/,'/export?format=xlsx');}$('sheetLink').hidden=!d.databaseUrl;$('xlsxLink').hidden=!d.databaseUrl;renderAllData();renderWorkspace();renderSharing();if(!state.closureDraft)renderClosures();if(!state.scheduleDraft)renderSchedule();switchView(state.view);}
 const pages={calendar:['예약 달력','예약과 남은 수업을 한눈에 확인해요.'],students:['수강생','납부부터 누적 수강까지, 한 사람의 기록을 이어가요.'],closures:['수업 · 휴무 설정','요일별 수업 타임과 쉬는 날을 정해요.'],backup:['데이터 보관','앱을 떠나도 기록은 내 손에 남도록.'],users:['공유 설정','내 자료는 비공개로, 선택한 계정하고만 함께 관리해요.']};
 installMenuSwipe($('shell'),{
- canNavigate:()=>!!state.data&&!state.pending&&!menuAnimating&&!document.querySelector('dialog[open]')&&!document.activeElement?.matches('input:not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable="true"]'),
+ canNavigate:()=>!!state.data&&!state.pending&&!menuAnimating&&!(window.visualViewport?.scale>1.01)&&!document.querySelector('dialog[open]')&&!document.activeElement?.matches('input:not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable="true"]'),
  onNavigate:step=>{const menus=[...document.querySelectorAll('[data-view]')].filter(b=>!b.hidden&&!b.disabled),index=menus.findIndex(b=>b.dataset.view===state.view),next=menus[index+step];if(next)next.click();}
 });
 function applyView(view){document.body.classList.toggle('calendar-mode',view==='calendar');if(['closures','backup','users'].includes(view)&&state.data.user.role!=='admin')view='calendar';state.view=view;Object.keys(pages).forEach(v=>$(v+'View').hidden=v!==view);document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});$('pageTitle').textContent=pages[view][0];$('pageDesc').textContent=pages[view][1];requestAnimationFrame(fitCalendar);$('stats').hidden=view!=='calendar';$('topBook').hidden=view!=='calendar';updatePrint();}
