@@ -73,6 +73,11 @@
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
 @media screen{
+ .calendar-mode .slotchip:not(.occupied),.slotchip:not(.occupied){background:#f1f2f5;color:#7c8594;box-shadow:none}
+ .calendar-mode .slotchip.occupied,.slotchip.occupied{background:#c5dbff;color:#20467f;box-shadow:inset 0 0 0 1px #6892d7;font-weight:700}
+ .legend i.booked{background:#6892d7}.legend i.empty-slot{background:#d3d7df}
+}
+@media screen{
  .slotpeople{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
  .slotpeople>.muted{grid-column:1/-1}
  .slotpeople>.slotperson{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;min-width:0;width:100%;min-height:68px;padding:10px;border:1px solid transparent;border-radius:12px;background:#f0f4ff;color:#20232c;text-align:left;white-space:normal;line-height:1.5}

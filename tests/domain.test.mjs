@@ -16,6 +16,14 @@ function fixture(credits=3){
  const book=(date='2026-11-07',time='11:00',endTime='13:00')=>event('book',{id:randomUUID(),studentId:s.id,passId:pass.id,date,time,endTime,note:''});
  return {s,pass,events,book,fold:(extra=[])=>replay(emptyTables(),events.concat(extra))};
 }
+test('자동 완료는 수업 시작부터 적용되고 취소하면 차감·완료 집계 대상에서 빠진다',()=>{
+ const f=fixture(),b=f.book();
+ const complete=at=>event('changeBooking',{id:b.data.id,version:1,status:'수강완료',automatic:true},{at});
+ const early=f.fold([b,complete('2026-11-07 10:59:59')]);assert.equal(early.outcomes.at(-1).status,'거절');
+ const done=f.fold([b,complete('2026-11-07 11:00:00')]);assert.equal(done.outcomes.at(-1).status,'적용');assert.equal(tablesToData(done.tables).bookings[0].status,'수강완료');
+ const cancelled=replay(done.tables,[event('changeBooking',{id:b.data.id,version:2,status:'취소'},{at:'2026-11-07 11:01:00'})]);
+ const bs=tablesToData(cancelled.tables).bookings;assert.equal(bs.filter(x=>x.status!=='취소').length,0);assert.equal(bs.filter(x=>x.status==='수강완료').length,0);
+});
 test('마지막 잔여 1회의 동시 요청은 시트 행 순서상 첫 요청만 적용한다',()=>{
  const f=fixture(1),a=f.book(),b=f.book('2026-11-08');
  for(const order of [[a,b],[b,a]]){const r=f.fold(order);assert.equal(r.outcomes.at(-2).status,'적용');assert.equal(r.outcomes.at(-1).status,'거절');assert.match(r.outcomes.at(-1).error,/잔여 횟수/);assert.equal(tablesToData(r.tables).bookings.length,1);}

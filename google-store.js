@@ -1,6 +1,6 @@
 import {CONFIG} from './config.js?v=20261104-google1';
-import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-complete1';
-import {needsCompletion} from './booking-completion.js?v=20261104-complete1';
+import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-start1';
+import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-subong1';
 
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
