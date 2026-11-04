@@ -72,6 +72,9 @@
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+@media screen{
+ .rail nav button.active,.rail nav button.active:hover,.rail nav button.active:focus-visible{background:#193b78;color:#fff;border-color:#193b78;font-weight:700}
+}
 @media screen and (max-width:600px){.brandmark{width:30px;height:30px;border-radius:9px}.login .brandmark{width:44px;height:44px;border-radius:12px}}
 @media screen{
  #refresh,.calendar-mode .heading .tools #refresh,#prevMonth,#nextMonth,.calendar-mode .monthcontrols #prevMonth,.calendar-mode .monthcontrols #nextMonth{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;min-height:44px;padding:9px;flex:0 0 44px;border-radius:14px;color:#344e7b}
