@@ -12,7 +12,7 @@ const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 const SESSION_KEY='subong-google-session-v1';
 
 export class GoogleStore{
- constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};}
+ constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG}={}){this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};globalThis.addEventListener?.('storage',e=>{if(e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
  get configured(){return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(this.config.clientId);}
  async signIn(){
   if(!this.configured)throw new Error('구글 로그인 연결 설정이 아직 준비되지 않았습니다.');
@@ -38,14 +38,15 @@ export class GoogleStore{
   if(invited&&validId(invited)){try{const meta=await this.meta(invited);if(meta.ownedByMe||meta.capabilities?.canEdit){this.remember(meta);this.selected=invited;}}catch{}}
   return this.user;
  }
- persistSession(){try{sessionStorage.setItem(SESSION_KEY,JSON.stringify({token:this.token,expires:this.expires,savedAt:Date.now()}));}catch{}}
- forgetSession(){try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
+ persistSession(){const saved=JSON.stringify({token:this.token,expires:this.expires,savedAt:Date.now()});try{localStorage.setItem(SESSION_KEY,saved);}catch{}try{sessionStorage.setItem(SESSION_KEY,saved);}catch{}}
+ forgetSession(){try{localStorage.setItem(SESSION_KEY,'null');}catch{}try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
  async restoreSession(){
-  let saved;try{saved=JSON.parse(sessionStorage.getItem(SESSION_KEY));}catch{return false;}
-  if(!saved)return false;
+  let saved,persistent=false;try{const raw=localStorage.getItem(SESSION_KEY);if(raw!==null){persistent=true;saved=JSON.parse(raw);}}catch{}
+  if(!persistent)try{saved=JSON.parse(sessionStorage.getItem(SESSION_KEY));}catch{return false;}
+  if(!saved){if(persistent)try{sessionStorage.removeItem(SESSION_KEY);}catch{}return false;}
   if(typeof saved.token!=='string'||!saved.token||!Number.isFinite(saved.expires)||!Number.isFinite(saved.savedAt)||saved.expires<=Date.now()||saved.savedAt>Date.now()+60000){this.forgetSession();return false;}
   this.disconnect({forget:false});this.token=saved.token;this.expires=Math.min(saved.expires,saved.savedAt+3600000);
-  try{await this.connectAccount();return true;}catch(e){if(e.code==='AUTH_REQUIRED'){this.disconnect();return false;}throw e;}
+  try{await this.connectAccount();this.persistSession();return true;}catch(e){if(e.code==='AUTH_REQUIRED'){this.disconnect();return false;}throw e;}
  }
  disconnect({forget=true}={}){if(forget)this.forgetSession();this.epoch++;this.token='';this.expires=0;this.user=null;this.selected='';this.files=[];this.latestTables=null;this.latestWorkspace='';this.pending.clear();this.gridMeta.clear();this.ownSetup=null;this.onSignOut();}
  assertSession(){if(!this.token||Date.now()>=this.expires){this.token='';this.forgetSession();const e=new Error('구글 연결이 만료됐습니다. 계정 버튼에서 다시 연결하세요.');e.code='AUTH_REQUIRED';throw e;}}

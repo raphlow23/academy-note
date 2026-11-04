@@ -142,3 +142,28 @@ test('지난 수업을 저장된 완료로 자동 전환하고 재접속·두 �
 test('브라우저 보관 기능이 없어도 현재 계정의 자료 선택은 동작한다',()=>{const f=fixture(),a=f.client();assert.equal(a.select(id).id,id);});
 test('1000행을 넘는 자료의 조회용 표를 확장하고 같은 확장을 반복하지 않는다',async()=>{const base=emptyTables();for(let i=0;i<1005;i++)base['예약'].push(['old'+i]);const titles=[...Object.keys(base),'수강현황'];let reads=0;const batches=[];const a=new GoogleStore({fetcher:async(url,o)=>{if(o.method==='GET'){reads++;return {ok:true,status:200,json:async()=>({sheets:titles.map((title,sheetId)=>({properties:{title,sheetId,gridProperties:{rowCount:1000}}}))})};}batches.push(JSON.parse(o.body));return {ok:true,status:200,json:async()=>({})};}});a.token='token-capacity';a.expires=Date.now()+3600000;await a.ensureViewCapacity(id,base);await a.ensureViewCapacity(id,base);assert.equal(reads,1);assert.equal(batches.length,1);assert.equal(batches[0].requests[0].appendDimension.length,500);});
 test('기존 자료 이관 전에 새 파일의 비공개 여부를 확인하고 자동 공유 파일에는 기록을 쓰지 않는다',async()=>{const f=fixture();f.base['수강생'][1][1]='SecretStudent';let createdBody;const urls=[];const a=new GoogleStore({fetcher:async(url,o)=>{urls.push(url);let data;if(url.endsWith('/v4/spreadsheets')){createdBody=JSON.parse(o.body);data={spreadsheetId:id,sheets:createdBody.sheets};}else if(url.includes('/permissions'))data={permissions:[{id:'owner',role:'owner'},{id:'unexpected',type:'domain',role:'reader'}]};else data={id,ownedByMe:true};return {ok:true,status:200,json:async()=>data};}});a.token='token-create';a.expires=Date.now()+3600000;a.user={email:person};await assert.rejects(a.initialize(f.base),/자동 공유/);assert.equal(JSON.stringify(createdBody).includes('SecretStudent'),false);assert.equal(urls.some(u=>u.includes(':batchUpdate')),false);});
+
+
+async function withDeviceStorage(run){
+ const old={localStorage:globalThis.localStorage,sessionStorage:globalThis.sessionStorage,location:globalThis.location,addEventListener:globalThis.addEventListener};
+ const local=new Map(),session=new Map(),listeners=[];const storage=m=>({getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>m.set(k,v),removeItem:k=>m.delete(k)});
+ globalThis.localStorage=storage(local);globalThis.sessionStorage=storage(session);globalThis.location={href:'https://example.test/academy/'};globalThis.addEventListener=(type,fn)=>{if(type==='storage')listeners.push(fn);};
+ try{await run({local,session,listeners});}finally{for(const [k,v] of Object.entries(old)){if(v===undefined)delete globalThis[k];else globalThis[k]=v;}}
+}
+test('홈 화면 앱을 완전히 닫아 탭 저장소가 사라져도 유효한 기기 연결을 Google에 재확인해 복구한다',async()=>withDeviceStorage(async({local,session})=>{
+ const first=new GoogleStore();first.token='device-token';first.expires=Date.now()+120000;first.persistSession();const expiry=first.expires;session.clear();
+ const reopened=new GoogleStore();let checked=0;reopened.http=async()=>{checked++;return {email:'device@example.test',sub:'device-owner'};};reopened.ensureOwnWorkspace=async()=>{reopened.files=[{id:'device-sheet',ownedByMe:true}];};
+ assert.equal(await reopened.restoreSession(),true);assert.equal(checked,1);assert.equal(reopened.user.email,'device@example.test');assert.equal(reopened.selected,'device-sheet');assert.equal(reopened.expires,expiry);assert.equal(local.size,1);
+}));
+test('로그아웃 표식이 있으면 예전 탭에 토큰이 남아 있어도 로그인으로 복구하지 않는다',async()=>withDeviceStorage(async({local,session})=>{
+ const a=new GoogleStore();a.token='old-token';a.expires=Date.now()+120000;a.persistSession();const saved=[...session.entries()][0];a.disconnect();session.set(...saved);
+ const b=new GoogleStore();b.connectAccount=async()=>{throw new Error('must not reconnect');};assert.equal(await b.restoreSession(),false);assert.equal(session.size,0);assert.equal([...local.values()][0],'null');
+}));
+test('기기 저장소의 연결도 만료되면 복원하지 않고 토큰을 지운다',async()=>withDeviceStorage(async({local,session})=>{
+ const a=new GoogleStore();a.token='expired-device-token';a.expires=Date.now()-1;a.persistSession();assert.equal(await a.restoreSession(),false);assert.equal(session.size,0);assert.equal([...local.values()][0],'null');
+}));
+test('다른 탭의 계정 변경은 현재 화면과 탭 토큰만 지우고 새 계정의 기기 연결은 보존한다',async()=>withDeviceStorage(async({local,session,listeners})=>{
+ const a=new GoogleStore();a.token='old-account-token';a.expires=Date.now()+120000;a.persistSession();let cleared=0;a.onSignOut=()=>cleared++;
+ const key=[...local.keys()][0],replacement=JSON.stringify({token:'new-account-token',expires:Date.now()+120000,savedAt:Date.now()});local.set(key,replacement);listeners[0]({key,newValue:replacement});
+ assert.equal(a.token,'');assert.equal(cleared,1);assert.equal(session.size,0);assert.equal(local.get(key),replacement);
+}));

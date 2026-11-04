@@ -3,7 +3,7 @@ import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
 import {tablesToData} from './domain.js?v=20261104-closure1';
 import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=20261104-colors1';
-import {GoogleStore} from './google-store.js?v=20261104-closure1';
+import {GoogleStore} from './google-store.js?v=20261104-padfit1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
 const backend=new GoogleStore();
@@ -27,7 +27,7 @@ function lastBadge(b){return isLastLesson(b,state.data)?'<span class="lastlesson
 function toneClass(id,booking){return creditTone(id,state.data,booking);}
 function studentName(id){return state.data.students.find(s=>s.id===id)?.name||'보관된 수강생';}
 function bookingsOn(date){return state.data.bookings.filter(b=>b.date===date).sort((a,b)=>a.time.localeCompare(b.time)||a.studentName.localeCompare(b.studentName));}
-function renderStats(){const d=state.data,bs=d.bookings.filter(b=>b.date.startsWith(state.month)&&b.status!=='취소');const tx=d.transactions.filter(t=>t.date.startsWith(state.month));$('stats').innerHTML=[['이번 달 예약',bs.length,'건'],['이번 달 수강완료',bs.filter(b=>b.status==='수강완료').length,'회'],['이번 달 납부',tx.reduce((n,t)=>n+t.amount,0).toLocaleString('ko-KR'),'원']].map(([label,n,unit])=>`<div class="stat"><span>${label}</span><strong>${n}<small>${unit}</small></strong></div>`).join('');}
+function renderStats(){const d=state.data,bs=d.bookings.filter(b=>b.date.startsWith(state.month)&&b.status!=='취소');$('stats').innerHTML=[['이번 달 예약',bs.length,'건'],['이번 달 수강완료',bs.filter(b=>b.status==='수강완료').length,'회']].map(([label,n,unit])=>`<div class="stat"><span>${label}</span><strong>${n}<small>${unit}</small></strong></div>`).join('');}
 function renderCalendar(){
   const [y,m]=state.month.split('-').map(Number),first=new Date(y,m-1,1),start=new Date(y,m-1,1-first.getDay()),last=new Date(y,m,0),days=Math.ceil((first.getDay()+last.getDate())/7)*7;
   $('monthTitle').textContent=`${y}년 ${m}월`;const cells=[];
@@ -176,10 +176,15 @@ function syncBookingTimes(){const slots=daySlots($('bDate').value),selected=$('b
 function applyBookingSlot(){const s=state.bookingSlots.find(s=>s.id===$('bSlot').value),p=state.data.transactions.find(t=>t.id===$('bPass').value),oneday=p?.kind==='1일클래스';$('bTime').innerHTML=timeOptions(s?minutes(s.start):0,s?minutes(s.end)-30:1410);$('bTime').value=s?.start||'10:00';$('bTime').disabled=!!s&&!oneday;$('bEnd').innerHTML='';limitBookingEnds();$('bEnd').disabled=!!s&&!oneday;if(s&&!oneday)$('bEnd').value=s.end;validateBookingTime();}
 function limitBookingEnds(){const s=state.bookingSlots.find(s=>s.id===$('bSlot').value),p=state.data.transactions.find(t=>t.id===$('bPass').value),start=minutes($('bTime').value||'10:00'),old=$('bEnd').value,max=s?minutes(s.end):1440;$('bEnd').innerHTML=timeOptions(start+30,max);const desired=clock(Math.min(max,start+(p?.kind==='1일클래스'?60:120)));$('bEnd').value=old>clock(start)&&old<=clock(max)?old:desired;}
 function validateBookingTime(){const closed=Academy.closed($('bDate').value,state.data.closures),hasPass=!!$('bPass').value,noSlots=scheduleAtDate(state.data.schedule,$('bDate').value).slots.length&&!state.bookingSlots.length;const p=state.data.transactions.find(t=>t.id===$('bPass').value);$('bookingHelp').textContent=closed?'휴무일: '+closed:!$('bStudent').value?'수강생을 먼저 선택하세요.':!hasPass?'사용 가능한 수강권이 없습니다. 수강권을 먼저 등록하세요.':noSlots?'설정에서 이 요일의 수업 시간을 추가하세요.':p?.kind==='1일클래스'?'1일 클래스 · 타임 안에서 30분 단위로 시작·종료를 선택하세요. 예약 1건은 1회 차감됩니다.':'정규권 · 선택한 타임 전체 수강, 예약 1건은 1회 차감됩니다.';$('submitBooking').disabled=!!closed||!hasPass||!!noSlots||!$('bTime').value||!$('bEnd').value;}
-function fitCalendar(){if(state.view!=='calendar'||state.timetableOnly)return;const grid=$('calendarGrid'),top=grid.getBoundingClientRect().top+window.scrollY,foot=document.querySelector('.calendarfoot').getBoundingClientRect().height;grid.style.height=Math.max(180,window.innerHeight-top-foot-10)+'px';}
+function fitCalendar(){
+ if(state.view!=='calendar'||state.timetableOnly||document.querySelector('dialog[open]'))return;
+ const grid=$('calendarGrid'),top=grid.getBoundingClientRect().top+window.scrollY,foot=document.querySelector('.calendarfoot').getBoundingClientRect().height;
+ const height=window.visualViewport?.height||window.innerHeight,bottom=parseFloat(getComputedStyle(document.querySelector('main')).paddingBottom)||0;
+ grid.style.height=Math.max(140,Math.floor(height-top-foot-bottom-3))+'px';
+}
 // 화면 이벤트
 window.addEventListener('resize',()=>requestAnimationFrame(fitCalendar));
-new ResizeObserver(()=>requestAnimationFrame(fitCalendar)).observe(document.querySelector('.rail'));
+const calendarResize=new ResizeObserver(()=>requestAnimationFrame(fitCalendar));for(const e of document.querySelectorAll('.rail,.heading,#stats,.workspacebar'))calendarResize.observe(e);window.visualViewport?.addEventListener('resize',()=>requestAnimationFrame(fitCalendar));
 $('toggleTimetable').onclick=()=>{state.timetableOnly=!state.timetableOnly;renderDay();};
 $('allScheduleDays').onchange=()=>$('scheduleDays').querySelectorAll('input').forEach(el=>el.checked=$('allScheduleDays').checked);
 $('addScheduleSlot').onclick=addScheduleSlot;

@@ -72,6 +72,19 @@
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+@media screen{
+ body{padding-top:env(safe-area-inset-top,0px)}
+ .shell{min-height:calc(100dvh - env(safe-area-inset-top,0px))}
+ .calendar-mode main{padding-bottom:max(10px,env(safe-area-inset-bottom,0px))}
+ .calendar-help{display:none}
+ .calendar-mode .heading{gap:16px}
+ .calendar-mode .calendar-help{display:block;flex:1;min-width:0;color:#65748b;font-size:11px;line-height:1.5}
+ .calendar-help span{display:block}
+ .calendar-mode .heading>div:first-child,.calendar-mode .heading>.tools{flex-shrink:0}
+ .calendar-mode #stats .stat{display:flex}
+ @media(min-width:1101px){.railfoot{margin-top:12px;background:transparent;padding:0}.railfoot button{margin-top:0}}
+ @media(max-width:600px){.calendar-mode .heading{flex-wrap:wrap;gap:8px}.calendar-mode .calendar-help{order:3;flex:1 0 100%;font-size:10px}.calendar-help span{display:inline}.calendar-help span+span:before{content:' · '}}
+}
 #scheduleDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;width:100%;min-width:0}
 #scheduleDays label{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;margin:0;padding:7px 2px;border-radius:12px;font-size:12px;line-height:1.3;white-space:nowrap}
 #scheduleDays input{width:17px;height:17px;min-height:17px;flex-shrink:0;margin:0}
