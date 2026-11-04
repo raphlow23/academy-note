@@ -1,6 +1,6 @@
 import {installScrollBoundary} from './scroll-boundary.js?v=20261104-pullrefresh1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
-import {installMenuSwipe} from './menu-swipe.js?v=20261104-formswipe1';
+import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipeflow1';
 import {weeklyClosureAtDate,closureReason} from './closure-history.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
@@ -108,12 +108,13 @@ function switchView(view){
  menuTransition?.skipTransition();menuAnimation?.cancel();menuAnimating=true;document.documentElement.dataset.menuDirection=forward?'forward':'back';
  const run=()=>{if(generation!==menuGeneration||state.data!==data)return;applyView(view);window.scrollTo(0,0);fitCalendar();};
  const done=()=>{if(generation!==menuGeneration)return;menuAnimating=false;menuTransition=null;menuAnimation=null;requestAnimationFrame(fitCalendar);};
- if(document.startViewTransition){
-  menuTransition=document.startViewTransition(run);menuTransition.finished.then(done,done);
- }else if(stage.animate){
-  menuAnimation=stage.animate([{transform:'translateX(0)',opacity:1},{transform:`translateX(${forward?'-':'+'}18%)`,opacity:0}],{duration:70,easing:'ease-in',fill:'forwards'});
-  menuAnimation.finished.then(()=>{if(generation!==menuGeneration)return;menuAnimation.cancel();run();menuAnimation=stage.animate([{transform:`translateX(${forward?'+':'-'}25%)`,opacity:0},{transform:'translateX(0)',opacity:1}],{duration:170,easing:'cubic-bezier(.22,.7,.25,1)'});menuAnimation.finished.then(done,done);},done);
- }else{run();done();}
+ // Keep the actual page interactive throughout the animation. Native View
+ // Transition snapshots can intercept a second touch before this page gets it.
+ run();
+ if(stage.animate){
+  menuAnimation=stage.animate([{transform:`translateX(${forward?'+':'-'}18%)`,opacity:0.75},{transform:'translateX(0)',opacity:1}],{duration:220,easing:'cubic-bezier(.22,.7,.25,1)'});
+  menuAnimation.finished.then(done,done);
+ }else done();
 }
 function canReloadApp(){return !hasUnsent()&&!appReloading&&!state.pending&&!menuAnimating&&!document.querySelector('dialog[open]')&&!dirtySettings.size&&!document.activeElement?.matches('input:not([type=checkbox]):not([type=radio]),textarea,select');}
 function reloadLatestApp({confirmed=false,allowPending=false}={}){

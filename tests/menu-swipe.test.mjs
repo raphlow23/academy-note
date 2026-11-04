@@ -124,3 +124,11 @@ test('라벨 위의 단순 탭은 체크·링크 기본 클릭을 방해하지 �
  const a=setup();a.start();a.end(250,200);let blocked=0;
  a.listeners.click({detail:1,preventDefault:()=>blocked++,stopImmediatePropagation:()=>blocked++});assert.equal(blocked,0);
 });
+
+
+test('가로로 방향을 잡은 뒤 손을 놓으며 조금 휘어진 동작도 인식한다',()=>{
+ const a=setup();a.start();a.move(235,202);a.move(220,215);a.end(205,250,250);assert.deepEqual(a.moves,[1]);
+ assert.equal(swipeStep({dx:45,dy:50,vertical:50,elapsed:250,axis:'horizontal'}),-1);
+ assert.equal(swipeStep({dx:30,dy:90,vertical:90,elapsed:200,axis:'horizontal'}),0);
+ assert.equal(swipeStep({dx:45,dy:50,vertical:50,elapsed:250,axis:'vertical'}),0);
+});
