@@ -72,6 +72,24 @@
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+.studentlist,.studentgroup,.studentrows{min-width:0;width:100%}
+.studentrow{display:block;width:100%;min-width:0;min-height:62px;border:0;border-bottom:1px solid #e8edf6;border-radius:0;padding:8px 12px;background:#fff;text-align:left;line-height:1.4;font-weight:400}
+.studentrow:hover{background:#f4f7ff}
+.studentrow-main{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.studentrow-main>.student-name{font-size:14px;font-weight:700;overflow-wrap:anywhere;min-width:0}
+.studentrow-balance{font-size:12px;flex-shrink:0;text-align:right}
+.studentrow-meta{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:4px;color:#718099;font-size:11px;font-weight:400;line-height:1.45}
+.studentrow-meta>span{min-width:0;overflow-wrap:anywhere;max-width:100%}
+#studentsView .studentgrouphead{padding:7px 12px;background:#edf3ff;gap:8px}
+#studentsView .studentgrouphead h3{margin:0;font-size:11px;line-height:1.5}
+#studentsView .studentgrouphead>span{font-size:11px;white-space:nowrap}
+#studentsView .studentfilters{display:flex;gap:8px;align-items:center;padding:9px 12px}
+#studentsView .filters{display:flex;align-items:center;gap:8px;min-width:0;flex:1;flex-wrap:nowrap}
+#studentsView .filters input[type=search]{min-width:0;width:100%;flex:1;font-size:16px;padding:9px 10px}
+#studentsView .filters .check{flex-shrink:0;margin:0;font-size:11px;white-space:nowrap;gap:5px}
+#studentsView #studentCount{flex-shrink:0;font-size:10px;white-space:nowrap}
+@media screen and (min-width:760px){.studentrow-meta{font-size:12px}.studentrow{padding:9px 16px}.studentrow-main>.student-name{font-size:15px}}
+@media print{.studentrow{break-inside:avoid;background:#fff!important;color:#000}.studentrow-meta{color:#444}}
 @media screen{#stats{grid-template-columns:repeat(2,minmax(0,1fr))}.studentlist-title{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;min-width:0}.active-student-count{display:inline-block;padding:4px 8px;background:#edf3ff;color:#435e8c;border-radius:9px;font-size:12px;white-space:nowrap}}
 @media screen{
  .calendar-mode .slotchip:not(.occupied),.slotchip:not(.occupied){background:#f1f2f5;color:#7c8594;box-shadow:none}
