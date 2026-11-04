@@ -72,6 +72,7 @@
 @media screen{.workspacebar select,.calendar-mode .workspacebar select{width:100%;min-width:0;flex:1}.workspacebar .tools{min-width:0}.workspacebar .muted,.calendar-mode .workspacebar .muted{display:block;overflow-wrap:anywhere;white-space:normal;line-height:1.5;margin:3px 0 0!important;font-size:10px}}
 .brandmark,.login .brandmark{background:#fff;border:1px solid #e3e7ee;overflow:hidden;padding:0;border-radius:11px;width:38px;height:38px;flex:0 0 auto}
 .brandmark img{display:block;width:100%;height:100%;object-fit:contain}
+#shell.menu-dragging,#shell.menu-dragging *{user-select:none;-webkit-user-select:none;cursor:grabbing}
 @media screen{html,body{overscroll-behavior-y:none}dialog{overscroll-behavior-y:contain}}
 #pageStage{min-width:0;view-transition-name:menu-page}
 .app-update-notice{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;margin-bottom:12px}
