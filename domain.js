@@ -1,3 +1,4 @@
+import {closureFromRows,closureReason} from './closure-history.js?v=20261104-closure1';
 import {BASELINE_DATE,nextDate,scheduleFromRows,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
 import {bookingHasStarted} from './booking-completion.js?v=20261104-start1';
 // Pure validation and deterministic ordered replay. No credentials or remote state.
@@ -101,15 +102,9 @@ function changeBooking_(u,d){
 }
 const WEEKDAYS_=['일요일','월요일','화요일','수요일','목요일','금요일','토요일'];
 function closures_(){
-  const rows=rows_('휴무설정'),versionRow=rows.find(r=>r[0]==='설정');
-  if(!versionRow)throw new Error('휴무설정의 버전 행이 없습니다. 원본 시트를 확인하세요.');
-  return {version:Number(versionRow[6]),weekdays:rows.filter(r=>r[1]==='매주').map(r=>WEEKDAYS_.indexOf(r[2])),
-    ranges:rows.filter(r=>r[1]==='기간').map(r=>({id:r[0],start:r[3],end:r[4],reason:r[5]}))};
+ const rows=rows_('휴무설정');if(!rows.some(r=>r[0]==='설정'))throw new Error('휴무설정의 버전 행이 없습니다. 원본을 확인하세요.');return closureFromRows(rows);
 }
-function closed_(date,settings){
-  const match=settings.ranges.find(r=>date>=r.start&&date<=r.end);if(match)return match.reason||'임시 휴무';
-  const day=new Date(date+'T00:00:00Z').getUTCDay();return settings.weekdays.includes(day)?WEEKDAYS_[day]+' 정기 휴무':'';
-}
+function closed_(date,settings){return closureReason(date,settings);}
 function saveClosures_(u,d){
   admin_(u);const current=closures_();if(d.version!==current.version)throw new Error('다른 사용자가 휴무 설정을 바꿨습니다. 새로고침하세요.');
   if(!Array.isArray(d.weekdays)||d.weekdays.length>7||!Array.isArray(d.ranges)||d.ranges.length>100)throw new Error('휴무 설정 형식을 확인하세요.');
@@ -117,12 +112,18 @@ function saveClosures_(u,d){
   const ranges=d.ranges.map(r=>({id:id_(r.id),start:date_(r.start),end:date_(r.end),reason:text_(r.reason,80,false)}));
   if(ranges.some(r=>r.start>r.end))throw new Error('휴무 종료일은 시작일보다 빠를 수 없습니다.');
   if(new Set(ranges.map(r=>r.id)).size!==ranges.length)throw new Error('중복된 휴무 규칙 ID입니다.');
-  const next={version:current.version+1,weekdays,ranges},today=Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd');
-  const conflicts=rows_('예약').filter(r=>r[1]>=today&&r[7]!=='취소'&&closed_(r[1],next));
+  const today=Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd'),effectiveFrom=d.effectiveFrom?date_(d.effectiveFrom):'';
+  if(effectiveFrom&&effectiveFrom<today)throw new Error('정기 휴무 적용일은 오늘 이후로 선택하세요. 과거 휴무는 보존합니다.');
+  if(!effectiveFrom&&current.history.length)throw new Error('휴무 적용 시작일을 선택하세요. 이전 화면이면 새로고침하세요.');
+  const history=current.history.slice();
+  if(effectiveFrom){if(!history.length)history.push({effectiveFrom:BASELINE_DATE,version:current.version,weekdays:current.weekdays});history.push({effectiveFrom,version:current.version+1,weekdays});}
+  const next={version:current.version+1,weekdays,ranges,history};
+  const conflicts=rows_('예약').filter(r=>r[1]>=today&&r[7]!=='취소'&&closed_(r[1],next)&&!closed_(r[1],current));
   if(conflicts.length)throw new Error('휴무일에 기존 예약 '+conflicts.length+'건이 있습니다 ('+conflicts.slice(0,3).map(r=>r[1]+' '+r[4]).join(', ')+'). 먼저 취소하거나 다른 날짜로 다시 예약하세요.');
   const rows=[['설정','버전','','','','',next.version]];
   weekdays.forEach(day=>rows.push(['weekday-'+day,'매주',WEEKDAYS_[day],'','','정기 휴무',next.version]));
   ranges.forEach(r=>rows.push([r.id,'기간','',r.start,r.end,r.reason,next.version]));
+  history.forEach(h=>rows.push(['정기휴무-'+h.version,'정기휴무이력','',h.effectiveFrom,'',JSON.stringify(h.weekdays),h.version]));
   rows.push(...rows_('휴무설정').filter(r=>r[0]&&(r[1]==='수업시간'||r[1]==='시간표이력'||r[0]==='시간설정')));
   const length=Math.max(rows.length,lastRow_('휴무설정')-1);
   while(rows.length<length)rows.push(Array(TABLES_['휴무설정'].length).fill(''));
@@ -160,7 +161,7 @@ function saveSchedule_(u,d){
   let record=[];
   if(target!=='휴무설정')record=tables[target].find(r=>r[0]===result.id)||[];
   else if(event.action==='saveSchedule')record=[event.data.effectiveFrom?'수업시간-'+result.version:'수업시간','설정 변경','',event.data.effectiveFrom||'','',''+result.slots.map(s=>WEEKDAYS_[s.day]+' '+s.start+'–'+s.end).join(' / '),result.version];
-  else record=['휴무','설정 변경',result.weekdays.map(d=>WEEKDAYS_[d]).join(', '),'','',result.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),result.version];
+  else record=['휴무','설정 변경',result.weekdays.map(d=>WEEKDAYS_[d]).join(', '),event.data.effectiveFrom||'','',result.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),result.version];
   return {result,target,record};
 }
 export const TABLES=TABLES_;
@@ -181,6 +182,6 @@ export function replay(base, events){
 export function tablesToData(tables){
  const rows=n=>tables[n].slice(1).filter(r=>r[0]),r=rows('휴무설정'),v=r.find(x=>x[0]==='설정');
  const dateEnd=b=>{if(b[12])return b[12];const end=Math.min(1440,Number(b[2].slice(0,2))*60+Number(b[2].slice(3))+(b[6]==='1일클래스'?60:120));return String(Math.floor(end/60)).padStart(2,'0')+':'+String(end%60).padStart(2,'0');};
- return {students:rows('수강생').map(r=>({id:r[0],name:r[1],phone:r[2],since:r[3],note:r[4],active:r[5]==='재원',priorCount:Number(r[6]),priorPaid:Number(r[7]),version:Number(r[8])})),transactions:rows('수강권납부').map(r=>({id:r[0],studentId:r[1],studentName:r[2],date:r[3],kind:r[4],credits:Number(r[5]),amount:Number(r[6]),note:r[7],at:r[8],author:r[9]})),bookings:rows('예약').map(r=>({id:r[0],date:r[1],time:r[2],endTime:dateEnd(r),legacyTime:!r[12],studentId:r[3],studentName:r[4],passId:r[5],kind:r[6],status:r[7],note:r[8],version:Number(r[9]),at:r[10],author:r[11]})),closures:{version:Number(v?.[6]||1),weekdays:r.filter(x=>x[1]==='매주').map(x=>WEEKDAYS_[x[2]]),ranges:r.filter(x=>x[1]==='기간').map(x=>({id:x[0],start:x[3],end:x[4],reason:x[5]}))},schedule:scheduleFromRows(r)};
+ return {students:rows('수강생').map(r=>({id:r[0],name:r[1],phone:r[2],since:r[3],note:r[4],active:r[5]==='재원',priorCount:Number(r[6]),priorPaid:Number(r[7]),version:Number(r[8])})),transactions:rows('수강권납부').map(r=>({id:r[0],studentId:r[1],studentName:r[2],date:r[3],kind:r[4],credits:Number(r[5]),amount:Number(r[6]),note:r[7],at:r[8],author:r[9]})),bookings:rows('예약').map(r=>({id:r[0],date:r[1],time:r[2],endTime:dateEnd(r),legacyTime:!r[12],studentId:r[3],studentName:r[4],passId:r[5],kind:r[6],status:r[7],note:r[8],version:Number(r[9]),at:r[10],author:r[11]})),closures:closureFromRows(r),schedule:scheduleFromRows(r)};
 }
 const WEEKDAYS_=Object.fromEntries(['일요일','월요일','화요일','수요일','목요일','금요일','토요일'].map((v,i)=>[v,i]));

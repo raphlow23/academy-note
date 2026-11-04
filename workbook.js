@@ -1,4 +1,4 @@
-import {TABLES, SUMMARY_HEADERS, emptyTables, tablesToData} from './domain.js?v=20261104-history1';
+import {TABLES, SUMMARY_HEADERS, emptyTables, tablesToData} from './domain.js?v=20261104-closure1';
 
 export const LOG='작업기록';
 export const LOG_HEADERS=['작업ID','요청종류','기록계정','기록일시','요청데이터(JSON)','처리상태','처리메시지','대상표','대상ID',...Array.from({length:13},(_,i)=>'결과'+(i+1))];

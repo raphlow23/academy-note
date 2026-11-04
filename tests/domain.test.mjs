@@ -6,6 +6,7 @@ import {orderedStudentGroups} from '../student-order.js';
 import {studentCreditState,isLastLesson} from '../student-alerts.js';
 import {workbookResource,parseBase} from '../workbook.js';
 import {scheduleAtDate} from '../schedule-history.js';
+import {closureReason,weeklyClosureAtDate} from '../closure-history.js';
 
 const actor='owner@example.test';
 const event=(action,data,extra={})=>({id:randomUUID(),action,data,actor,at:'2026-11-04 10:00:00',...extra});
@@ -82,4 +83,32 @@ test('오늘·과거 적용일과 이전 버전 클라이언트의 시간표 덮
  const f=fixture(),slots=weekSlots('11:00','13:00');
  for(const effectiveFrom of ['2026-11-03','2026-11-04']){const r=f.fold([event('saveSchedule',{version:1,effectiveFrom,slots})]);assert.equal(r.outcomes.at(-1).status,'거절');assert.match(r.outcomes.at(-1).error,/내일 이후/);}
  const r=f.fold([event('saveSchedule',{version:1,effectiveFrom:'2026-11-05',slots}),event('saveSchedule',{version:2,slots:[]})]);assert.equal(r.outcomes.at(-1).status,'거절');assert.equal(scheduleAtDate(tablesToData(r.tables).schedule,'2026-11-04').slots.length,0);
+});
+
+
+test('정기 휴무의 적용일 전은 기존 요일을 보존하고 여러 변경은 각각 다음 적용일 전까지만 적용한다',()=>{
+ const f=fixture();
+ const old=event('saveClosures',{version:1,weekdays:[0],ranges:[]});
+ const a=event('saveClosures',{version:2,effectiveFrom:'2026-11-10',weekdays:[1],ranges:[]});
+ const b=event('saveClosures',{version:3,effectiveFrom:'2026-11-20',weekdays:[2],ranges:[]});
+ const between=event('saveClosures',{version:4,effectiveFrom:'2026-11-15',weekdays:[3],ranges:[]});
+ const first=f.fold([old,a]);const c=tablesToData(first.tables).closures;
+ assert.equal(closureReason('2026-11-08',c),'정기 휴무');assert.equal(closureReason('2026-11-09',c),'');assert.equal(closureReason('2026-11-15',c),'');assert.equal(closureReason('2026-11-16',c),'정기 휴무');
+ const r=f.fold([old,a,b,between]),d=tablesToData(r.tables).closures;
+ assert.deepEqual(weeklyClosureAtDate(d,'2026-11-14').weekdays,[1]);assert.deepEqual(weeklyClosureAtDate(d,'2026-11-15').weekdays,[3]);assert.deepEqual(weeklyClosureAtDate(d,'2026-11-24').weekdays,[2]);
+ assert.equal(closureReason('2026-11-08',d),'정기 휴무');assert.equal(closureReason('2026-11-18',d),'정기 휴무');assert.equal(closureReason('2026-11-24',d),'정기 휴무');
+ assert.deepEqual(tablesToData(replay(r.tables,[]).tables).closures,d);
+});
+test('과거 휴무 덮어쓰기와 이력 이후 적용일 없는 요청은 거절하고 수업시간 저장도 휴무 이력을 보존한다',()=>{
+ const f=fixture(),a=event('saveClosures',{version:1,effectiveFrom:'2026-11-10',weekdays:[1],ranges:[]});
+ const bad=f.fold([a,event('saveClosures',{version:2,effectiveFrom:'2026-11-03',weekdays:[],ranges:[]})]);assert.equal(bad.outcomes.at(-1).status,'거절');
+ const stale=f.fold([a,event('saveClosures',{version:2,weekdays:[],ranges:[]})]);assert.equal(stale.outcomes.at(-1).status,'거절');
+ const r=f.fold([a,event('saveSchedule',{version:1,effectiveFrom:'2026-11-05',slots:weekSlots('11:00','13:00')})]);assert.deepEqual(weeklyClosureAtDate(tablesToData(r.tables).closures,'2026-11-16').weekdays,[1]);
+});
+test('새 휴무 시작 전 예약은 유지하고 적용일 이후 충돌만 막으며 기간 휴무도 함께 유지한다',()=>{
+ const f=fixture();const prior=f.book('2026-11-07');
+ const change=event('saveClosures',{version:1,effectiveFrom:'2026-11-10',weekdays:[6],ranges:[{id:randomUUID(),start:'2026-11-25',end:'2026-11-26',reason:'여행'}]});
+ const good=f.fold([prior,change]);assert.equal(good.outcomes.at(-1).status,'적용');assert.equal(closureReason('2026-11-07',tablesToData(good.tables).closures),'');assert.equal(closureReason('2026-11-25',tablesToData(good.tables).closures),'여행');
+ const conflict=f.fold([f.book('2026-11-14'),change]);assert.equal(conflict.outcomes.at(-1).status,'거절');assert.match(conflict.outcomes.at(-1).error,/기존 예약/);
+ const booking=f.fold([change,f.book('2026-11-14')]);assert.equal(booking.outcomes.at(-1).status,'거절');assert.match(booking.outcomes.at(-1).error,/휴무일/);
 });
