@@ -101,9 +101,9 @@
  @media(min-width:1101px){.railfoot{margin-top:12px;background:transparent;padding:0}.railfoot button{margin-top:0}}
  @media(max-width:600px){.calendar-mode .heading{flex-wrap:wrap;gap:8px}.calendar-mode .calendar-help{order:3;flex:1 0 100%;font-size:10px}.calendar-help span{display:inline}.calendar-help span+span:before{content:' · '}}
 }
-#scheduleDays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;width:100%;min-width:0}
-#scheduleDays label{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;margin:0;padding:7px 2px;border-radius:12px;font-size:12px;line-height:1.3;white-space:nowrap}
-#scheduleDays input{width:17px;height:17px;min-height:17px;flex-shrink:0;margin:0}
+#scheduleDays,#weekdayChecks{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;width:100%;min-width:0}
+#scheduleDays label,#weekdayChecks label{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;margin:0;padding:7px 2px;border-radius:12px;font-size:12px;line-height:1.3;white-space:nowrap}
+#scheduleDays input,#weekdayChecks input{width:17px;height:17px;min-height:17px;flex-shrink:0;margin:0}
 .studentlist,.studentgroup,.studentrows{min-width:0;width:100%}
 .studentrow{display:block;width:100%;min-width:0;min-height:62px;border:0;border-bottom:1px solid #e8edf6;border-radius:0;padding:8px 12px;background:#fff;text-align:left;line-height:1.4;font-weight:400}
 .studentrow:hover{background:#f4f7ff}
@@ -189,3 +189,13 @@
 }
 
 @media screen{#shell{touch-action:pan-y pinch-zoom}}
+
+/* One weekday selector row; each class time gets its own readable row. */
+@media screen{
+ #scheduleList .scheduleday{grid-template-columns:44px minmax(0,1fr);align-items:start;gap:10px;padding:12px 0;min-width:0}
+ #scheduleList .scheduleday>b{padding-top:13px;font-size:12px;white-space:nowrap}
+ #scheduleList .scheduleday>div{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;min-width:0}
+ #scheduleList .schedulepill{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;min-height:44px;margin:0;padding:0 0 0 12px;font-size:13px;line-height:1.3;white-space:nowrap;font-variant-numeric:tabular-nums;border-radius:12px}
+ #scheduleList .schedulepill button{flex:0 0 44px;width:44px;height:44px;min-height:44px;margin:0;padding:0;font-size:23px;line-height:1;border-radius:12px;background:transparent}
+ #scheduleList .scheduleday>div>.muted{min-height:44px;display:flex;align-items:center}
+}

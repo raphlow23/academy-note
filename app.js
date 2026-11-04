@@ -216,7 +216,7 @@ function renderClosures(preferredDate){dirtySettings.delete('closureForm');
 }
 function renderClosureWeekdays(){
  const days=weeklyClosureAtDate(state.data.closures,$('closureEffectiveFrom').value).weekdays;
- $('weekdayChecks').innerHTML=['일','월','화','수','목','금','토'].map((v,i)=>`<label><input type="checkbox" value="${i}" ${days.includes(i)?'checked':''}>${v}요일</label>`).join('');
+ $('weekdayChecks').innerHTML=['일','월','화','수','목','금','토'].map((v,i)=>`<label title="${v}요일"><input type="checkbox" value="${i}" aria-label="${v}요일" ${days.includes(i)?'checked':''}>${v}</label>`).join('');
 }
 function renderRanges(){$('closureRanges').innerHTML=state.closureDraft.ranges.map(r=>`<div class="rangeline" data-range="${esc(r.id)}"><input type="date" aria-label="휴무 시작일" data-field="start" value="${r.start}" required><input type="date" aria-label="휴무 종료일" data-field="end" value="${r.end}" required><input aria-label="휴무 사유" data-field="reason" placeholder="예: 여름휴가" maxlength="80" value="${esc(r.reason)}"><button type="button" data-remove="${esc(r.id)}">삭제</button></div>`).join('');$('closureRanges').querySelectorAll('[data-field]').forEach(el=>el.oninput=()=>{const r=state.closureDraft.ranges.find(r=>r.id===el.closest('[data-range]').dataset.range);r[el.dataset.field]=el.value;});$('closureRanges').querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{dirtySettings.add('closureForm');state.closureDraft.ranges=state.closureDraft.ranges.filter(r=>r.id!==b.dataset.remove);renderRanges();});}
 function csvText(rows){const safe=v=>/^\s*[=+\-@]/.test(String(v))?"'"+v:String(v);return '\ufeff'+rows.map(row=>row.map(v=>'"'+safe(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');}
