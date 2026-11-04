@@ -175,6 +175,36 @@ export class GoogleStore{
   if(!outcome.result)throw new Error('기록을 다시 불러와 저장 결과를 확인하세요.');
   return outcome.result;
  }
+ async registerAndBook(d,id){
+  d=clone(d);
+  for(const [obj,keys] of [[d.student,['name','phone','note']],[d.transaction,['note']],[d.booking,['note']]])if(obj)for(const k of keys)if(typeof obj[k]==='string')obj[k]=obj[k].trim();
+  const studentId=d.student?.id||d.transaction?.studentId;
+  if(d.transaction&&d.transaction.studentId!==studentId||d.booking&&(d.booking.studentId!==studentId||d.booking.passId!==d.transaction?.id))throw new Error('같은 수강생의 수강권과 예약을 선택하세요.');
+  this.latestTables=null;this.latestWorkspace='';
+  let snapshot=await this.snapshot(id);const current=tablesToData(snapshot.tables),commands=[];
+  const add=(action,data,existing,fields)=>{
+   if(!data)return;
+   if(existing){
+    if(fields.some(k=>existing[k]!==data[k]))throw new Error('이미 저장된 등록·납부 내용과 다릅니다. 저장된 내역을 확인하고 예약만 다시 진행하세요.');
+    if(action==='book'&&existing.status==='취소')throw new Error('이미 취소된 예약입니다. 새 예약으로 등록하세요.');
+   }else commands.push({action,data});
+  };
+  add('saveStudent',d.student,current.students.find(x=>x.id===d.student?.id),['name','phone','since','active','note','priorCount','priorPaid']);
+  add('addTransaction',d.transaction,current.transactions.find(x=>x.id===d.transaction?.id),['studentId','date','kind','credits','amount','note']);
+  add('book',d.booking,current.bookings.find(x=>x.id===d.booking?.id),['studentId','passId','date','time','endTime','note']);
+  if(!d.student&&!d.transaction)throw new Error('등록할 수강생 또는 수강권을 확인하세요.');
+  const at=stamp(),events=commands.map(c=>({id:crypto.randomUUID(),...c,actor:this.user.email,at}));
+  const checked=replay(snapshot.tables,events);const invalid=checked.outcomes.find(o=>o.status==='거절');
+  if(invalid)throw new Error(invalid.error);
+  if(events.length){
+   await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});
+   snapshot=await this.snapshot(id,snapshot.meta);
+  }
+  await this.settle(id,snapshot);this.latestTables=snapshot.tables;this.latestWorkspace=id;
+  const rejected=snapshot.outcomes.find((o,i)=>events.some(e=>e.id===snapshot.events[i].id)&&o.status==='거절');
+  if(rejected)throw new Error('일부 내용은 저장됐습니다. 목록·납부 내역을 확인하세요. '+rejected.error);
+  return {studentId:d.student?.id||d.transaction.studentId,bookingId:d.booking?.id||''};
+ }
  async permissions(id){const r=await this.http(DRIVE+'/files/'+id+'/permissions?fields=permissions(id,type,role,emailAddress,displayName)');return (r.permissions||[]).filter(p=>p.role!=='owner').map(p=>({id:p.id,email:p.emailAddress||'',name:p.displayName||'',type:p.type,role:p.role}));}
  async owner(id){const m=await this.meta(id);if(!this.eligible(m)||!m.ownedByMe)throw new Error('자료 소유자만 공유 권한을 관리할 수 있습니다.');return m;}
  async share(id,d){
@@ -205,6 +235,7 @@ export class GoogleStore{
   if(action==='selectOwnWorkspace'){const own=this.files.find(f=>f.ownedByMe);if(!own){this.selected='';return {id:''};}return this.select(own.id);}
   if(action==='joinWorkspace')return this.join(data.link);
   if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');
+  if(action==='registerAndBook')return this.registerAndBook(data,id);
   if(action==='autoComplete')return tablesToData((await this.completeElapsed(id)).tables);
   if(action==='listShares'){await this.owner(id);return {permissions:await this.permissions(id)};}
   if(action==='shareWorkspace')return this.share(id,data);

@@ -84,7 +84,7 @@ function fixture(){
   let out={};
   if(u.pathname.startsWith('/drive/v3/files/')&&options.method==='GET')out=meta;
   else if(u.pathname.endsWith('/values:batchGet'))out={valueRanges:[...Object.values(base).map(values=>({values:structuredClone(values)})),{values:rows.map(r=>{const out=structuredClone(r);while(out.length&&out.at(-1)==='')out.pop();return out;})}]};
-  else if(u.pathname.endsWith(':append')){rows.push(structuredClone(body.values[0]));if(loseNextAppend){loseNextAppend=false;throw new Error('Lost response after commit');}out={updates:{updatedRange:"'작업기록'!A"+rows.length+':V'+rows.length}};}
+  else if(u.pathname.endsWith(':append')){rows.push(...structuredClone(body.values));if(loseNextAppend){loseNextAppend=false;throw new Error('Lost response after commit');}out={updates:{updatedRange:"'작업기록'!A"+rows.length+':V'+rows.length}};}
   else if(u.pathname.endsWith('/values:batchUpdate')){for(const d of body.data){const row=Number(d.range.match(/!F(\d+)/)[1])-1;d.values[0].forEach((v,i)=>rows[row][i+5]=v);}}
   else throw new Error('Unexpected test URL '+u.pathname);
   return {ok:true,status:200,json:async()=>structuredClone(out)};
@@ -101,6 +101,26 @@ test('계정 전환 중 도착한 이전 계정 응답을 새 계정에 적용�
 test('잘못된 예약 시간은 추가 API 요청 전에 검증하고 시트 작업기록을 늘리지 않는다',async()=>{const f=fixture(),a=f.client();await assert.rejects(a.request('book',{...f.command(),time:'11:15'},id),/30분/);assert.equal(f.rows.length,1);assert.equal(f.calls.some(c=>c.url.includes(':append')),false);});
 
 test('이미 반영된 기록은 다시 불러올 때 불필요한 저장 요청을 반복하지 않는다',async()=>{const f=fixture(),a=f.client();await a.request('book',f.command(),id);const writes=f.calls.filter(c=>c.method==='POST').length;await a.request('load',{},id);await a.request('load',{},id);assert.equal(f.calls.filter(c=>c.method==='POST').length,writes);});
+
+function registration(){const student={id:randomUUID(),version:0,name:'신규 학생',phone:'010-0000-0000',since:'2026-11-04',note:'',active:true,priorCount:0,priorPaid:0};const transaction={id:randomUUID(),studentId:student.id,date:'2026-11-04',kind:'정규권',credits:8,amount:300000,note:''};const booking={id:randomUUID(),studentId:student.id,passId:transaction.id,date:'2026-11-07',time:'11:00',endTime:'13:00',note:''};return {student,transaction,booking};}
+test('수강생·8회권·첫 예약을 한 번에 등록하고 반복 요청에도 납부나 예약이 중복되지 않는다',async()=>{
+ const f=fixture(),a=f.client(),d=registration();await a.request('registerAndBook',d,id);await a.request('registerAndBook',d,id);
+ const saved=await a.request('load',{},id);assert.equal(saved.students.filter(x=>x.id===d.student.id).length,1);assert.equal(saved.transactions.filter(x=>x.id===d.transaction.id).length,1);assert.equal(saved.bookings.filter(x=>x.id===d.booking.id).length,1);
+ assert.equal(saved.transactions.find(x=>x.id===d.transaction.id).credits-saved.bookings.filter(x=>x.passId===d.transaction.id&&x.status!=='취소').length,7);
+ assert.equal(f.calls.filter(c=>c.url.includes(':append')).length,1);
+});
+test('예약 조건이 잘못되면 학생·납부까지 사전에 검증해 아무 작업도 추가하지 않는다',async()=>{
+ const f=fixture(),a=f.client(),d=registration();d.booking.time='11:15';await assert.rejects(a.request('registerAndBook',d,id),/30분/);assert.equal(f.rows.length,1);
+});
+test('일괄 등록 응답 유실 후 재시도에서도 이미 저장된 세 기록을 찾아 재사용한다',async()=>{
+ const f=fixture(),a=f.client(),d=registration();f.lose();await assert.rejects(a.request('registerAndBook',d,id),/저장 응답/);await a.request('registerAndBook',d,id);assert.equal(f.rows.length,4);assert.equal((await a.request('load',{},id)).bookings.length,1);
+});
+test('기존 학생 재수강권과 1일클래스 30분 예약을 합쳐 등록하고 학생 정보만 저장도 가능하다',async()=>{
+ const f=fixture(),a=f.client(),d=registration();d.transaction.kind='1일클래스';d.transaction.credits=1;d.booking.endTime='11:30';await a.request('registerAndBook',d,id);
+ const next=registration();delete next.student;next.transaction.studentId=d.student.id;next.booking.studentId=d.student.id;next.booking.time='13:30';next.booking.endTime='15:30';await a.request('registerAndBook',next,id);
+ const only=registration();await a.request('registerAndBook',{student:only.student},id);
+ const saved=await a.request('load',{},id);assert.equal(saved.bookings.length,2);assert.equal(saved.bookings[0].endTime,'11:30');assert.equal(saved.students.some(x=>x.id===only.student.id),true);
+});
 
 test('지난 수업을 저장된 완료로 자동 전환하고 재접속·두 기기에서도 한 번만 적용하며 완료 취소로 1회를 복구한다',async()=>{
  const f=fixture(),a=f.client(),b=f.client('editor@example.test');
