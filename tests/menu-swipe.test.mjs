@@ -96,3 +96,31 @@ test('감도를 한 단계 높여 34px 밀기와 빠른 22px 밀기를 처리하
  assert.equal(swipeStep({dx:40,dy:34,elapsed:350,axis:'vertical'}),0);
  const a=setup();a.start();a.move(238,202);a.end(216,206,500);assert.deepEqual(a.moves,[1]);
 });
+
+
+test('설정의 요일 라벨·데이터 보관 링크·이력 제목에서도 스와이프하고 실제 클릭은 막는다',()=>{
+ for(const kind of ['label','a','summary']){
+  const a=setup(),target={closest:q=>q.split(',').includes(kind)?{}:null,parentElement:a.target.parentElement};
+  a.start(250,200,target);a.move(235,202);a.end(210,207);
+  assert.deepEqual(a.moves,[1]);let blocked=0;
+  a.listeners.click({detail:1,preventDefault:()=>blocked++,stopImmediatePropagation:()=>blocked++});assert.equal(blocked,2);
+ }
+});
+test('공유 설정의 읽기 전용 주소는 이동할 수 있고 주소 선택 중에는 제외한다',()=>{
+ const a=setup(),field={selectionStart:0,selectionEnd:0},target={closest:q=>q==='input[readonly],textarea[readonly]'?field:null,parentElement:a.target.parentElement};
+ a.start(250,200,target);a.end(210,205);assert.deepEqual(a.moves,[1]);
+ field.selectionEnd=10;a.start(250,200,target);a.end(210,205);assert.deepEqual(a.moves,[1]);
+});
+test('입력창·선택창·팝업 안에서 시작한 동작은 여전히 메뉴 이동으로 쓰지 않는다',()=>{
+ for(const selector of ['input:not([readonly])','select','dialog']){
+  const a=setup(),target={closest:q=>q.includes(selector)?{}:null,parentElement:a.target.parentElement};
+  a.start(250,200,target);a.end(100,200);assert.deepEqual(a.moves,[]);
+ }
+});
+test('세로가 긴 화면에서 처음 12px 흔들린 뒤 가로로 밀어도 이동한다',()=>{
+ const a=setup();a.start();a.move(247,212);a.move(225,213);a.end(205,215,450);assert.deepEqual(a.moves,[1]);
+});
+test('라벨 위의 단순 탭은 체크·링크 기본 클릭을 방해하지 않는다',()=>{
+ const a=setup();a.start();a.end(250,200);let blocked=0;
+ a.listeners.click({detail:1,preventDefault:()=>blocked++,stopImmediatePropagation:()=>blocked++});assert.equal(blocked,0);
+});

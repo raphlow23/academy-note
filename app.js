@@ -1,6 +1,6 @@
-import {installScrollBoundary} from './scroll-boundary.js?v=20261104-scrolllock1';
+import {installScrollBoundary} from './scroll-boundary.js?v=20261104-softedge1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
-import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipelight2';
+import {installMenuSwipe} from './menu-swipe.js?v=20261104-formswipe1';
 import {weeklyClosureAtDate,closureReason} from './closure-history.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
@@ -9,7 +9,12 @@ import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=
 import {GoogleStore} from './google-store.js?v=20261104-durable1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
-installScrollBoundary(document);
+installScrollBoundary(document,{onPull:(offset,active)=>{
+ const shell=document.getElementById('shell');if(!shell)return;
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ shell.style.transition=active||reduced?'none':'translate 190ms cubic-bezier(.2,.8,.2,1)';
+ shell.style.translate=offset&&!reduced?'0 '+offset.toFixed(2)+'px':'';
+}});
 const backend=new GoogleStore();
 const $=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>Number(n).toLocaleString('ko-KR')+'원',today=()=>Academy.date(),uuid=()=>crypto.randomUUID();

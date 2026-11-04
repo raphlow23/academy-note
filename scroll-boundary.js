@@ -13,20 +13,25 @@ export function canScrollFrom(target,dy,{root,modalOpen=false,style=e=>getComput
  }
  return !modalOpen&&!!root&&canMoveVertically(root,dy);
 }
-export function installScrollBoundary(doc){
- let touch=null;
+export function edgePullOffset(distance){return Math.sign(distance)*10*(1-Math.exp(-Math.abs(distance)/55));}
+export function installScrollBoundary(doc,{onPull=()=>{}}={}){
+ let touch=null,pull=0;
+ const release=()=>{touch=null;pull=0;onPull(0,false);};
  doc.addEventListener('touchstart',e=>{
-  touch=null;if(doc.defaultView?.visualViewport?.scale>1.01||e.touches.length!==1||e.target.closest?.('input:not([type=checkbox]):not([type=radio]),select,[contenteditable="true"]'))return;
+  release();if(doc.defaultView?.visualViewport?.scale>1.01||e.touches.length!==1||e.target.closest?.('input:not([type=checkbox]):not([type=radio]),select,[contenteditable="true"]'))return;
   const t=e.touches[0],width=doc.defaultView?.innerWidth||doc.documentElement?.clientWidth||Infinity;
   if(t.clientX<28||t.clientX>width-28)return;
   touch={id:t.identifier,x:t.clientX,y:t.clientY,lastY:t.clientY};
  },{passive:true,capture:true});
  doc.addEventListener('touchmove',e=>{
-  if(!touch)return;if(e.touches.length!==1){touch=null;return;}
-  const t=[...e.touches].find(t=>t.identifier===touch.id);if(!t){touch=null;return;}
+  if(!touch)return;if(e.touches.length!==1){release();return;}
+  const t=[...e.touches].find(t=>t.identifier===touch.id);if(!t){release();return;}
   const dx=t.clientX-touch.x,dy=t.clientY-touch.y,step=t.clientY-touch.lastY;touch.lastY=t.clientY;
-  if(Math.abs(dy)<3||Math.abs(dx)>=Math.abs(dy)||!step||!e.cancelable)return;
-  if(!canScrollFrom(e.target,step,{root:doc.scrollingElement,modalOpen:!!doc.querySelector('dialog[open]')}))e.preventDefault();
+  if(Math.abs(dx)>=Math.abs(dy)){pull=0;onPull(0,false);return;}
+  if(Math.abs(dy)<3||!step||!e.cancelable)return;
+  const modalOpen=!!doc.querySelector('dialog[open]');
+  if(!canScrollFrom(e.target,step,{root:doc.scrollingElement,modalOpen})){e.preventDefault();if(!modalOpen){pull+=step;onPull(edgePullOffset(pull),true);}}
+  else if(pull){pull=0;onPull(0,false);}
  },{passive:false,capture:true});
- for(const type of ['touchend','touchcancel'])doc.addEventListener(type,()=>{touch=null;},{passive:true,capture:true});
+ for(const type of ['touchend','touchcancel'])doc.addEventListener(type,release,{passive:true,capture:true});
 }

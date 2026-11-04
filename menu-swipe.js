@@ -7,15 +7,17 @@ export function swipeStep({dx,dy,vertical=0,elapsed,maxDuration=1800,axis=null})
 function trackAxis(g,dx,dy){
  g.vertical=Math.max(g.vertical,Math.abs(dy));
  if(!g.axis){
-  if(Math.abs(dx)>=10&&Math.abs(dx)>Math.abs(dy)*1.2)g.axis='horizontal';
-  else if(Math.abs(dy)>=10&&Math.abs(dy)>Math.abs(dx)*1.2)g.axis='vertical';
+  if(Math.abs(dx)>=8&&Math.abs(dx)>Math.abs(dy)*1.15)g.axis='horizontal';
+  else if(Math.abs(dy)>=18&&Math.abs(dy)>Math.abs(dx)*1.4)g.axis='vertical';
  }
  return g.axis==='horizontal';
 }
 export function installMenuSwipe(root,{canNavigate,onNavigate,viewportWidth=()=>window.innerWidth,now=()=>Date.now()}){
  let gesture=null,pointer=null,suppressClickUntil=0,wheelTotal=0,lastWheel=0,wheelLockUntil=0;
  const ignored=target=>{
-  if(target.closest?.('input,textarea,select,label,summary,a,[contenteditable="true"],[data-no-swipe],dialog'))return true;
+  const readonly=target.closest?.('input[readonly],textarea[readonly]');
+  if(readonly&&readonly.selectionStart!==readonly.selectionEnd)return true;
+  if(target.closest?.('input:not([readonly]),textarea:not([readonly]),select,[contenteditable="true"],[data-no-swipe],dialog'))return true;
   for(let e=target;e&&e!==root;e=e.parentElement)if(e.scrollWidth>e.clientWidth+2&&['auto','scroll'].includes(getComputedStyle(e).overflowX))return true;
   return false;
  };
