@@ -177,3 +177,13 @@
  .dialogtop [data-close],.daydialog>.dialogtop button{min-width:44px;min-height:44px;font-size:13px}
  @media(max-width:380px){.calendar-mode .panelhead{flex-wrap:wrap}.calendar-mode .panelhead h2{flex:1 0 100%}.calendar-mode .monthcontrols{width:100%;justify-content:space-between}}
 }
+
+/* Fit every time row into its date cell, including fractional iPad grid heights. */
+@media screen{
+ .calendar-mode .day{padding:2px 3px;gap:2px}
+ .calendar-mode .monthslots{--time-gap:2px;display:grid;grid-template-rows:repeat(var(--slot-count,1),minmax(0,1fr));gap:var(--time-gap);flex:1 1 0;max-height:calc(var(--slot-count,1)*19px + (var(--slot-count,1) - 1)*var(--time-gap));overflow:hidden;container:month-times / size;touch-action:auto}
+ .calendar-mode .monthslots>.slotchip,.calendar-mode .monthslots>.more{min-height:0;max-height:none;height:auto;margin:0;padding:0 3px;align-self:stretch;line-height:1;display:flex;align-items:center;overflow:hidden}
+ .calendar-mode .monthslots .slottime,.calendar-mode .monthslots .slotnames,.calendar-mode .monthslots>.more{font-size:clamp(7px,calc((100cqh - (var(--slot-count,1) - 1)*var(--time-gap))/var(--slot-count,1) - 1px),10px);line-height:1}
+ @media(max-width:600px){.calendar-mode .monthslots{--time-gap:1px;max-height:calc(var(--slot-count,1)*13px + (var(--slot-count,1) - 1)*1px)}.calendar-mode .monthslots .slottime,.calendar-mode .monthslots .slotnames{font-size:clamp(7px,calc((100cqh - (var(--slot-count,1) - 1)*var(--time-gap))/var(--slot-count,1) - 1px),9px)}}
+ @container calendar-day (max-height:100px){.calendar-mode .monthslots{--time-gap:1px}.calendar-mode .daytop{flex-basis:14px;min-height:14px}.calendar-mode .daynum{height:14px;width:14px;font-size:10px}}
+}
