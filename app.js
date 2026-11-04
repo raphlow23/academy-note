@@ -18,12 +18,12 @@ const demo=['localhost','127.0.0.1'].includes(location.hostname)&&new URL(locati
 const state={data:null,view:'calendar',month:today().slice(0,7),selected:today(),pending:0,editing:null,detailId:null,txStudent:null,txId:null,bookingId:null,closureDraft:null,scheduleDraft:null,timetableOnly:false};
 let toastTimer,preparedFileUrl=null,menuTransition=null,menuAnimation=null,menuGeneration=0,menuAnimating=false;
 const dirtySettings=new Set(),runningBuild=htmlBuild(document.documentElement.outerHTML);
-let updateAvailable=false,updateChecking=false,lastUpdateCheck=0,appReloading=false;
+let updateAvailable=false,updateCheckPromise=null,lastUpdateCheck=0,appReloading=false;
 function toast(msg,error=false){$('toast').textContent=msg;$('toast').classList.toggle('error',error);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,error?12000:4500);}
 function clearPrivateView(){menuGeneration++;menuTransition?.skipTransition();menuAnimation?.cancel();menuTransition=null;menuAnimation=null;menuAnimating=false;if(history.state?.subongQuick||history.state?.subongDetail){const restored={...history.state};delete restored.subongQuick;delete restored.subongDetail;history.replaceState(restored,'',location.href);}if(preparedFileUrl){URL.revokeObjectURL(preparedFileUrl);preparedFileUrl=null;}$('preparedDownload').removeAttribute('href');$('downloadInfo').textContent='';document.querySelectorAll('dialog').forEach(d=>d.close());state.data=null;state.detailId=null;state.closureDraft=null;state.scheduleDraft=null;$('shell').hidden=true;$('login').hidden=false;['calendarGrid','dayPanel','studentTable','studentDetail','studentQuickContent','stats','sharesTable'].forEach(id=>$(id).replaceChildren());document.querySelectorAll('form').forEach(f=>f.reset());}
 async function request(action,data={},forcedWorkspaceId){if(demo)throw new Error('화면 미리보기입니다. 실제 저장은 구글 로그인 후 사용하세요.');const id=forcedWorkspaceId!==undefined?forcedWorkspaceId:state.data?.workspace?.id||backend.selected;try{return await backend.request(action,data,id);}finally{if(['saveStudent','addTransaction','book','changeBooking','saveClosures','saveSchedule','registerAndBook'].includes(action)&&backend.latestTables&&backend.latestWorkspace===id&&state.data?.workspace?.id===id&&state.data.user.email===backend.user?.email){Object.assign(state.data,tablesToData(backend.latestTables));renderAllData();}}}
 async function task(button,fn){if(button?.disabled)return;if(state.pending){toast('현재 작업이 끝난 뒤 다시 시도하세요.');return;}const form=button?.closest('form'),controls=form?[...form.querySelectorAll('input,select,textarea,button')].map(el=>[el,el.disabled]):[];controls.forEach(([el])=>el.disabled=true);if(button)button.disabled=true;state.pending++;$('saveState').textContent=' · 처리 중…';const began=performance.now();try{await fn();$('saveState').textContent=` · 완료 (${((performance.now()-began)/1000).toFixed(1)}초)`;}catch(e){$('saveState').textContent=' · 완료 여부 확인 필요';toast(e.message,true);}finally{controls.forEach(([el,disabled])=>el.disabled=disabled);if(button)button.disabled=false;state.pending--;maybeApplyUpdate();}}
-async function load(workspaceId){const data=await request('load',{},workspaceId);state.data=data;state.scheduleDraft=null;state.closureDraft=null;$('grantFilePermission').hidden=true;render();$('login').hidden=true;$('shell').hidden=false;}
+async function load(workspaceId){try{const data=await request('load',{},workspaceId);state.data=data;state.scheduleDraft=null;state.closureDraft=null;$('grantFilePermission').hidden=true;render();$('login').hidden=true;$('shell').hidden=false;}finally{checkAppUpdate({force:true});}}
 function table(headers,rows){return rows.length?`<div class="tablewrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">아직 기록이 없습니다.</div>';}
 function summary(s){return Academy.summary(s,state.data);}
 function creditBadge(id){return studentCreditState(id,state.data).exhausted?'<span class="creditnotice">소진 · 재등록</span>':'';}
@@ -99,13 +99,17 @@ function maybeApplyUpdate(){
  reloadLatestApp();
 }
 async function checkAppUpdate({force=false,auto=true}={}){
- if(updateChecking||!navigator.onLine||(!force&&Date.now()-lastUpdateCheck<60000))return false;
- updateChecking=true;lastUpdateCheck=Date.now();
- try{
-  const latest=await latestBuild(location.href);if(!latest)return false;
-  updateAvailable=latest!==runningBuild?latest:false;$('appUpdateNotice').hidden=!updateAvailable;requestAnimationFrame(fitCalendar);
-  if(auto)maybeApplyUpdate();return !!updateAvailable;
- }catch{return false;}finally{updateChecking=false;}
+ while(updateCheckPromise){if(!force)return false;await updateCheckPromise;}
+ if(!navigator.onLine||(!force&&Date.now()-lastUpdateCheck<60000))return false;
+ lastUpdateCheck=Date.now();
+ const check=(async()=>{
+  try{
+   const latest=await latestBuild(location.href);if(!latest)return false;
+   updateAvailable=latest!==runningBuild?latest:false;$('appUpdateNotice').hidden=!updateAvailable;requestAnimationFrame(fitCalendar);
+   if(auto)maybeApplyUpdate();return !!updateAvailable;
+  }catch{return false;}
+ })();
+ updateCheckPromise=check;try{return await check;}finally{if(updateCheckPromise===check)updateCheckPromise=null;}
 }
 for(const id of ['scheduleForm','closureForm'])for(const event of ['input','change'])$(id).addEventListener(event,()=>dirtySettings.add(id));
 $('appVersionLabel').textContent=new URL(document.querySelector('script[type=module][src*="app.js"]').src).searchParams.get('v')||'현재 버전';
