@@ -9,4 +9,5 @@ export class AutoCommit{
  commit(id){const s=this.state(id);this.clearTimer(s.timer);s.timer=null;if(!s.dirty||s.composing)return false;if(this.busy()){s.timer=this.setTimer(()=>this.commit(id),300);return false;}if(!this.ready(id,s.touched)){this.onState(id,'입력 중 · 필수 항목을 마치면 자동 확정');return false;}this.onState(id,'자동 저장 중…');this.submit(id);return true;}
  flush(){for(const [id,s] of this.forms)if(s.dirty)this.commit(id);}
  stop(id){this.clearTimer(this.state(id).timer);}
+ fail(id,message){this.stop(id);this.onState(id,'저장 확인 필요 · '+message);}
 }
