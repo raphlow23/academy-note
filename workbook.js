@@ -1,3 +1,4 @@
+import {viewTables} from './sheet-views.js?v=20261106-exportfix1';
 import {TABLES, SUMMARY_HEADERS, emptyTables, tablesToData} from './domain.js?v=20261104-closure1';
 
 export const LOG='작업기록';
@@ -5,11 +6,6 @@ export const LOG_HEADERS=['작업ID','요청종류','기록계정','기록일시
 export const BASE=n=>'이관_'+n;
 const quote=n=>"'"+n.replaceAll("'","''")+"'";
 export const range=(name,cells='')=>quote(name)+(cells?'!'+cells:'');
-
-function currentView(name){
- const width=TABLES[name].length,end=String.fromCharCode(64+width),logEnd=String.fromCharCode(73+width);
- return `=IFERROR(LET(d,VSTACK(${range(name==='휴무설정'?'초기설정요약':BASE(name),'A2:'+end)},IFERROR(FILTER(${range(LOG,'J2:'+logEnd)},${range(LOG,'F2:F')}="적용",${range(LOG,'H2:H')}="${name}"),MAKEARRAY(1,${width},LAMBDA(r,c,"")))),f,FILTER(d,INDEX(d,,1)<>""),r,SORT(HSTACK(f,SEQUENCE(ROWS(f))),${width+1},FALSE),ids,UNIQUE(INDEX(f,,1)),ARRAYFORMULA(VLOOKUP(ids,r,SEQUENCE(1,${width}),FALSE))),"")`;
-}
 
 export function initialSettingsRows(base){const d=tablesToData(base),days=['일','월','화','수','목','금','토'],describe=slots=>slots.map(s=>days[s.day]+'요일 '+s.start+'–'+s.end).join(' / ');return [TABLES['휴무설정'],['휴무','설정 변경',d.closures.weekdays.map(n=>days[n]).join(', '),'','',d.closures.ranges.map(r=>r.start+'–'+r.end+' '+r.reason).join(' / '),d.closures.version],...(d.schedule.history.length?d.schedule.history.map(h=>['수업시간-'+h.version,'설정 변경','',h.effectiveFrom,'',describe(h.slots),h.version]):[['수업시간','설정 변경','','','',describe(d.schedule.slots),d.schedule.version]])];}
 
@@ -22,7 +18,7 @@ export function workbookResource(base=emptyTables()){
  }
  add('사용안내',[
   ['수봉화실 · 내 구글 계정 소유','웹앱 없이도 이 파일을 직접 조회·출력·엑셀 다운로드할 수 있습니다.'],
-  ['현재 자료','수강생·수강권납부·예약은 아래 작업기록의 적용된 결과를 수식으로 표시합니다.'],
+  ['현재 자료','수강생·수강권납부·예약·수강현황은 검증된 전체 기록을 실제 셀 값으로 표시합니다.'],
   ['공유','기본 비공개. 소유자가 명시적으로 허용한 구글 계정만 함께 관리합니다.'],
   ['작업기록','추가된 순서가 기준입니다. 처리 대기인 작업은 다음 앱 연결 때 검증·반영됩니다.'],
   ['백업','파일 → 다운로드 → Microsoft Excel. 앱에서는 CSV·JSON·오프라인 열람본을 받을 수 있습니다.'],
@@ -36,22 +32,10 @@ export function workbookResource(base=emptyTables()){
  add(LOG,[LOG_HEADERS],22);
  for(const name of Object.keys(TABLES))add(BASE(name),base[name],TABLES[name].length,true);
  add('초기설정요약',initialSettingsRows(base),7,true);
- for(const name of Object.keys(TABLES))add(name,[TABLES[name]],TABLES[name].length,false,currentView(name));
- add('수강현황',[SUMMARY_HEADERS],SUMMARY_HEADERS.length);
+ const views=viewTables(base,new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul'}).format(new Date()));
+ for(const name of Object.keys(TABLES))add(name,views[name],TABLES[name].length);
+ add('수강현황',views['수강현황'],SUMMARY_HEADERS.length);
  return {properties:{title:'수봉화실 · 나의 수강생과 예약',locale:'ko_KR',timeZone:'Asia/Seoul'},sheets};
-}
-
-export function summaryRequests(sheetId){
- const source=col=>`=ARRAYFORMULA(IF('수강생'!A2:A="","",'수강생'!${col}2:${col}))`;
- const map=f=>`=MAP(A2:A,LAMBDA(id,IF(id="","",${f})))`;
- const formulas=[source('A'),source('B'),source('C'),source('D'),
-  '=MAP(D2:D,LAMBDA(d,IF(d="","",IF(DATEVALUE(d)>TODAY(),"등록 예정",DATEDIF(DATEVALUE(d),TODAY(),"Y")&"년 "&MOD(DATEDIF(DATEVALUE(d),TODAY(),"M"),12)&"개월"))))',source('F'),
-  map("SUMIF('수강권납부'!B2:B,id,'수강권납부'!F2:F)"),
-  map("COUNTIFS('예약'!D2:D,id,'예약'!H2:H,\"<>취소\")"),
-  '=ARRAYFORMULA(IF(A2:A="","",G2:G-H2:H))',
-  map("SUMIF('수강생'!A2:A,id,'수강생'!G2:G)+COUNTIFS('예약'!D2:D,id,'예약'!H2:H,\"수강완료\")"),
-  map("SUMIF('수강생'!A2:A,id,'수강생'!H2:H)+SUMIF('수강권납부'!B2:B,id,'수강권납부'!G2:G)")];
- return formulas.map((formula,i)=>({updateCells:{start:{sheetId,rowIndex:1,columnIndex:i},rows:[{values:[{userEnteredValue:{formulaValue:formula}}]}],fields:'userEnteredValue'}}));
 }
 
 export function parseBase(valueRanges){

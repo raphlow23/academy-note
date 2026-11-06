@@ -1,9 +1,10 @@
+import {changedViews,viewWriteRequest,viewTables} from './sheet-views.js?v=20261106-exportfix1';
 import {ServerAuth,SERVER_SESSION_KEY} from './server-auth.js?v=20261106-auth1';
 import {SaveOutbox} from './save-outbox.js?v=20261104-durable1';
-import {CONFIG} from './config.js?v=20261106-auth2';
+import {CONFIG} from './config.js?v=20261106-exportfix1';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
-import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-closure1';
+import {LOG, LOG_HEADERS, BASE, range, workbookResource, parseBase,initialSettingsRows} from './workbook.js?v=20261106-exportfix1';
 
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const DRIVE='https://www.googleapis.com/drive/v3', SHEETS='https://sheets.googleapis.com/v4/spreadsheets';
@@ -158,6 +159,7 @@ export class GoogleStore{
  async snapshot(id,knownMeta){
   const meta=knownMeta||(Date.now()-this.listedAt<30000?this.files.find(f=>f.id===id):null)||await this.meta(id);if(meta.id!==id||!this.eligible(meta))throw new Error('접근할 수 있는 학원 자료가 아닙니다.');
   const names=Object.keys(TABLES),params=new URLSearchParams();names.forEach(n=>params.append('ranges',range(BASE(n))));params.append('ranges',range(LOG));params.set('valueRenderOption','UNFORMATTED_VALUE');
+  if(this.config.viewValues)for(const name of [...names,'수강현황'])params.append('ranges',range(name));
   const data=await this.http(SHEETS+'/'+id+'/values:batchGet?'+params);
   const base=parseBase(data.valueRanges),rows=data.valueRanges?.[names.length]?.values||[];
   if(JSON.stringify(rows[0])!==JSON.stringify(LOG_HEADERS))throw new Error('작업기록 머리글이 바뀌었습니다. 원본을 확인하세요.');
@@ -166,7 +168,7 @@ export class GoogleStore{
    try{const payload=JSON.parse(r[4]);if(!payload||typeof payload!=='object')throw 0;return {id:r[0],action:r[1],actor:r[2],at:r[3],data:payload,row:i+2,stored:r};}
    catch{throw new Error('작업기록 '+(i+2)+'행의 데이터를 확인할 수 없습니다. 원본을 보존하고 복사본에서 확인하세요.');}
   });
-  const folded=replay(base,events);this.knownTables??=new Map();this.knownTables.set(id,{sub:this.user?.sub,tables:folded.tables});return {meta,base,events,...folded};
+  const folded=replay(base,events);this.knownTables??=new Map();this.knownTables.set(id,{sub:this.user?.sub,tables:folded.tables});return {meta,base,events,...folded,views:this.config.viewValues?Object.fromEntries([...names,'수강현황'].map((name,i)=>[name,data.valueRanges?.[names.length+1+i]?.values||[]])):undefined};
  }
  async settle(id,snapshot){
   await this.ensureViewCapacity(id,snapshot.tables);
@@ -176,6 +178,14 @@ export class GoogleStore{
    if(JSON.stringify(Array.from({length:17},(_,j)=>e.stored[j+5]??''))!==JSON.stringify(values))data.push({range:range(LOG,'F'+e.row+':V'+e.row),values:[values]});
   });
   if(data.length)await this.http(SHEETS+'/'+id+'/values:batchUpdate',{method:'POST',body:{valueInputOption:'RAW',data}});
+  if(this.config.viewValues)await this.syncViews(id,snapshot);
+ }
+ async syncViews(id,snapshot){
+  if(this.authPreview)throw new Error('읽기 전용 화면에서는 원본 표를 갱신하지 않습니다.');
+  const changed=changedViews(snapshot.tables,snapshot.views,stamp().slice(0,10));if(!changed.length)return;
+  let meta=this.gridMeta.get(id);if(!meta){const r=await this.http(SHEETS+'/'+id+'?fields=sheets(properties(sheetId,title,gridProperties(rowCount)))');meta=new Map(r.sheets.map(s=>[s.properties.title,s.properties]));this.gridMeta.set(id,meta);}
+  const requests=changed.map(([name,rows])=>{const properties=meta.get(name);if(!properties)throw new Error('조회용 '+name+' 탭이 없습니다. 원본을 확인하세요.');return viewWriteRequest(properties,rows);});
+  await this.http(SHEETS+'/'+id+':batchUpdate',{method:'POST',body:{requests}});
  }
  async ensureViewCapacity(id,tables){
   if(Math.max(...Object.values(tables).map(rows=>rows.length))<900)return;
@@ -212,7 +222,7 @@ export class GoogleStore{
   await this.http(DRIVE+'/files/'+id+'?fields=id',{method:'PATCH',body:{appProperties:{academySchema:'3'},properties:{academySchema:'3'},writersCanShare:false}});
   const meta=await this.meta(id);if(!meta.ownedByMe)throw new Error('생성된 자료의 소유자를 확인할 수 없습니다.');
   const permissions=await this.permissions(id);if(permissions.length)throw new Error('조직의 자동 공유 정책이 적용된 파일입니다. 비공개 여부를 확인하세요.');
-  const requests=summaryRequests(created.sheets.find(s=>s.properties.title==='수강현황').properties.sheetId);
+  const requests=[];for(const [name,rows] of Object.entries(viewTables(base,stamp().slice(0,10)))){const properties=created.sheets.find(s=>s.properties.title===name).properties;if(rows.length>properties.gridProperties.rowCount){const length=rows.length-properties.gridProperties.rowCount+20;requests.push({appendDimension:{sheetId:properties.sheetId,dimension:'ROWS',length}});properties.gridProperties.rowCount+=length;}requests.push(viewWriteRequest(properties,rows));}
   const imports=Object.keys(TABLES).map(name=>({name:BASE(name),rows:base[name]})).concat({name:'초기설정요약',rows:initialSettingsRows(base)});
   for(const item of imports){const sh=created.sheets.find(s=>s.properties.title===item.name),count=sh.properties.gridProperties?.rowCount||1000;if(item.rows.length>count)requests.push({appendDimension:{sheetId:sh.properties.sheetId,dimension:'ROWS',length:item.rows.length-count+20}});requests.push({updateCells:{start:{sheetId:sh.properties.sheetId,rowIndex:0,columnIndex:0},rows:item.rows.map(row=>({values:row.map(v=>({userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:String(v??'')}}))})),fields:'userEnteredValue'}});}
   await this.http(SHEETS+'/'+id+':batchUpdate',{method:'POST',body:{requests}});
@@ -306,6 +316,17 @@ export class GoogleStore{
   if(action==='listShares'){await this.owner(id);return {permissions:await this.permissions(id)};}
   if(action==='shareWorkspace')return this.share(id,data);
   if(action==='revokeShare')return this.revoke(id,data);
+  if(action==='exportXlsx'){
+   await this.completeElapsed(id);
+   for(let attempt=0;attempt<2;attempt++){
+    await this.ensureSession();const epoch=this.epoch;let response;
+    try{response=await this.fetcher(DRIVE+'/files/'+id+'/export?'+new URLSearchParams({mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),{headers:{Authorization:'Bearer '+this.token},signal:AbortSignal.timeout(25000)});}catch{throw new Error('엑셀 파일을 내려받지 못했습니다. 인터넷 연결 후 다시 시도하세요.');}
+    if(epoch!==this.epoch)throw new Error('계정이 변경되었습니다.');
+    if(response.status===401&&this.serverAuth.enabled&&attempt===0){await this.ensureSession({force:true});continue;}
+    if(!response.ok)throw new Error('구글 시트의 엑셀 다운로드를 완료하지 못했습니다. 원본 시트에서 다시 다운로드하세요.');
+    return response.arrayBuffer();
+   }
+  }
   if(action==='export'){const s=this.authPreview?await this.snapshot(id):await this.completeElapsed(id);return {format:'academy-calendar-v3',exportedAt:stamp(),tables:s.tables};}
   throw new Error('지원하지 않는 작업입니다.');
  }

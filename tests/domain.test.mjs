@@ -62,7 +62,7 @@ test('소진 표시와 마지막 수업은 예약 취소·추가 수강권에 �
 });
 test('아직 수강권을 등록하지 않은 신규 학생은 소진으로 잘못 표시하지 않는다',()=>{assert.equal(studentCreditState('new',{transactions:[],bookings:[]}).exhausted,false);});
 test('기존 12열 예약 자료를 보존해 이관하고 늦은 시각의 추정 종료를 24시로 제한한다',()=>{const f=fixture(),r=f.fold([f.book('2026-11-07','23:00','24:00')]),ranges=Object.values(r.tables).map(rows=>({values:rows}));ranges[2].values=ranges[2].values.map(r=>r.slice(0,12));const base=parseBase(ranges);assert.equal(base['예약'][0].length,13);assert.equal(tablesToData(base).bookings[0].endTime,'24:00');assert.equal(tablesToData(base).bookings[0].legacyTime,true);});
-test('새 워크북은 직접 확인 가능한 작업기록과 수강현황을 포함한다',()=>{const r=workbookResource();assert(r.sheets.find(s=>s.properties.title==='작업기록'));assert(r.sheets.find(s=>s.properties.title==='수강현황'));assert.equal(r.sheets.find(s=>s.properties.title==='수강생').data[1].rowData[0].values[0].userEnteredValue.formulaValue.startsWith('=IFERROR'),true);});
+test('새 워크북은 직접 확인 가능한 작업기록과 수강현황을 포함한다',()=>{const r=workbookResource();assert(r.sheets.find(s=>s.properties.title==='작업기록'));assert(r.sheets.find(s=>s.properties.title==='수강현황'));assert.equal(r.sheets.find(s=>s.properties.title==='수강생').data.length,1);assert.equal(JSON.stringify(r).includes('formulaValue'),false);});
 
 const weekSlots=(start,end)=>Array.from({length:7},(_,day)=>({id:randomUUID(),day,start,end}));
 test('적용일 이전 시간표와 완료·미래 예약의 원래 시간이 보존된다',()=>{

@@ -8,7 +8,7 @@ import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
 import {tablesToData} from './domain.js?v=20261104-closure1';
 import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=20261104-colors1';
-import {GoogleStore} from './google-store.js?v=20261106-sheets1';
+import {GoogleStore} from './google-store.js?v=20261106-exportfix1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
 installScrollBoundary(document,{
@@ -307,6 +307,7 @@ $('shareForm').onsubmit=e=>{e.preventDefault();const email=$('shareEmail').value
 async function refreshShares(){if(!state.data.workspace?.ownedByMe)return;const id=state.data.workspace.id;try{const r=await request('listShares');if(state.data?.workspace?.id!==id)return;state.data.workspace.permissions=r.permissions;renderShares();}catch(e){toast(e.message,true);}}
 $('refreshShares').onclick=refreshShares;
 document.querySelectorAll('[data-export]').forEach(b=>b.onclick=()=>task(b,async()=>{const x=await request('export');download(b.dataset.export+'_'+today()+'.csv',csvText(x.tables[b.dataset.export]),'text/csv;charset=utf-8');toast('전체 기간 CSV가 준비됐습니다. 파일 저장을 눌러주세요.');}));
+$('xlsxLink').onclick=e=>{e.preventDefault();task($('xlsxLink'),async()=>{const bytes=await request('exportXlsx');download('수봉화실_전체기록_'+today()+'.xlsx',bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('전체 기록을 확인한 엑셀입니다. 파일 저장을 눌러주세요.');});};
 $('exportJson').onclick=()=>task($('exportJson'),async()=>{const x=await request('export');download('수봉화실_전체_'+today()+'.json',JSON.stringify(x,null,2),'application/json;charset=utf-8');toast('전체 JSON 백업이 준비됐습니다. 파일 저장을 눌러주세요.');});
 $('exportHtml').onclick=()=>task($('exportHtml'),async()=>{const x=await request('export');download('수봉화실_오프라인_'+today()+'.html',offlineHtml(x),'text/html;charset=utf-8');toast('오프라인 열람본이 준비됐습니다. 파일 저장 후 PC에서도 열 수 있어요.');});
 $('printScope').onchange=()=>{const detail=$('printScope').value==='student';$('printStudent').hidden=!detail;$('printStudentLabel').hidden=!detail;};
