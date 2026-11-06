@@ -1,0 +1,20 @@
+{
+  "name": "subong-academy-auth",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-06",
+  "workers_dev": true,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "APP_URL": "https://raphlow23.github.io/academy-note/",
+    "GOOGLE_CLIENT_ID": "797445060732-k4ntt5piugot6v04jdkb3k1p4utufi09.apps.googleusercontent.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "subong-academy-auth",
+      "database_id": "8f8ca622-7ab3-4375-a990-954b0e90927c"
+    }
+  ]
+}

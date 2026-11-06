@@ -90,7 +90,7 @@ function fixture(){
   else throw new Error('Unexpected test URL '+u.pathname);
   return {ok:true,status:200,json:async()=>structuredClone(out)};
  };
- function client(email=person){const store=new GoogleStore({fetcher,outboxStorage});store.appUrl=()=> 'https://example.test/academy/';store.token='token-'+email;store.expires=Date.now()+3600000;store.user={email,sub:email,name:email,role:'admin'};store.files=[meta];store.selected=id;return store;}
+ function client(email=person,serverMode=false){const store=new GoogleStore({fetcher,outboxStorage,...(serverMode?{config:{clientId:'test.apps.googleusercontent.com',authServer:'https://auth.example.test'}}:{})});store.appUrl=()=> 'https://example.test/academy/';store.token='token-'+email;store.expires=Date.now()+3600000;store.user={email,sub:email,name:email,role:'admin'};store.files=[meta];store.selected=id;return store;}
  const command=()=>({id:randomUUID(),studentId:s.id,passId:p.id,date:'2026-11-07',time:'11:00',endTime:'13:00',note:''});
  return {client,command,rows,calls,base,lose(){loseNextAppend=true;}};
 }
@@ -211,4 +211,52 @@ test('작은 Google 쓰기 요청은 백그라운드 전환 시 계속 전송하
  a.token='test-token';a.expires=Date.now()+60000;
  await a.http('https://sheets.googleapis.com/v4/spreadsheets/test',{method:'POST',body:{values:[['test']]}});
  assert.equal(options.keepalive,true);
+});
+
+
+test('서버 인증의 자동 갱신 뒤에도 같은 시트와 기존 수강권·예약 원본을 그대로 읽는다',async()=>{
+ const f=fixture(),a=f.client(person,true),base=JSON.stringify(f.base);let renewals=0;a.expires=0;
+ a.serverAuth.token=async()=>{renewals++;return {access_token:'token-renewed',expires_at:Date.now()/1000+3500,user:{sub:person,email:person}};};
+ const [one,two]=await Promise.all([a.request('load',{},id),a.request('load',{},id)]);
+ assert.equal(renewals,1);assert.equal(one.workspace.id,id);assert.equal(two.workspace.id,id);assert.equal(one.students.length,1);assert.equal(one.transactions.length,1);assert.equal(f.rows.length,1);assert.equal(JSON.stringify(f.base),base);
+ assert(f.calls.every(c=>c.method==='GET'));
+});
+test('서버 인증 복원은 기존 시트를 재사용하며 새 시트를 생성하거나 이관하지 않는다',async()=>{
+ const f=fixture(),a=f.client(person,true),meta=a.files[0];let creates=0;
+ a.serverAuth.restore=async()=>({access_token:'token-restored',expires_at:Date.now()/1000+3500,user:{sub:person,email:person}});
+ const original=a.http.bind(a);a.http=(url,options)=>url.includes('/userinfo')?Promise.resolve({sub:person,email:person}):original(url,options);
+ a.listFiles=async()=>a.files=[meta];a.initialize=async()=>{creates++;throw Error('must not create');};
+ const oldLocation=globalThis.location;globalThis.location={href:'https://raphlow23.github.io/academy-note/'};
+ try{assert.equal(await a.restoreSession(),true);assert.equal(a.selected,id);assert.equal(creates,0);assert.equal(f.rows.length,1);}finally{if(oldLocation===undefined)delete globalThis.location;else globalThis.location=oldLocation;}
+});
+test('만료된 인증을 갱신해 예약하고 취소해도 기존과 같은 차감·복구 결과를 낸다',async()=>{
+ const f=fixture(),a=f.client(person,true),cmd=f.command();a.expires=0;
+ a.serverAuth.token=async()=>({access_token:'token-renewed',expires_at:Date.now()/1000+3500,user:{sub:person,email:person}});
+ await a.request('book',cmd,id);let saved=await a.request('load',{},id);assert.equal(saved.bookings.length,1);assert.equal(saved.bookings[0].status,'예약');
+ await a.request('changeBooking',{id:cmd.id,version:saved.bookings[0].version,status:'취소'},id);saved=await a.request('load',{},id);
+ assert.equal(saved.bookings[0].status,'취소');assert.equal(saved.transactions[0].credits,1);
+});
+test('알려진 기존 시트 접근이 거절되면 인증 전환 중 새 빈 시트로 대체하지 않는다',async()=>withDeviceStorage(async({local})=>{
+ const f=fixture(),a=f.client(person,true);local.set('academy-own:'+person,id);a.listFiles=async()=>a.files=[];a.meta=async()=>{throw Object.assign(Error('no access'),{status:403});};let creates=0;a.initialize=async()=>{creates++;};
+ await assert.rejects(a.ensureOwnWorkspace(),/no access/);assert.equal(creates,0);
+}));
+test('갱신 뒤에도 Google이 401을 반환하면 한 번만 재시도하고 무한 반복하지 않는다',async()=>{
+ const f=fixture(),a=f.client(person,true);let calls=0,refreshes=0;
+ a.fetcher=async()=>{calls++;return {status:401,ok:false,json:async()=>({})};};a.serverAuth.token=async()=>{refreshes++;return {access_token:'token-renewed',expires_at:Date.now()/1000+3500,user:{sub:person,email:person}};};a.serverAuth.logout=()=>{};
+ await assert.rejects(a.http('https://sheets.googleapis.com/v4/spreadsheets/'+id),e=>e.code==='AUTH_REQUIRED');assert.equal(calls,2);assert.equal(refreshes,1);
+});
+
+
+test('인증 확인용 화면은 대기 작업과 자동 완료를 처리하지 않고 기존 자료를 읽기만 한다',async()=>{
+ const f=fixture(),a=f.client(person,true),cmd=f.command();f.lose();await assert.rejects(a.request('book',cmd,id));assert.equal(a.unsent().length,1);
+ const before=f.calls.length,rows=JSON.stringify(f.rows);a.authPreview=true;const saved=await a.request('load',{},id);
+ assert.equal(saved.bookings.length,1);assert.equal(a.unsent().length,1);assert.equal(JSON.stringify(f.rows),rows);assert(f.calls.slice(before).every(c=>c.method==='GET'));
+});
+test('인증 확인용 화면은 예약·납부·정보수정·공유 변경을 모두 차단한다',async()=>{
+ const f=fixture(),a=f.client(person,true);a.authPreview=true;
+ for(const action of ['book','registerAndBook','saveStudent','changeBooking','saveClosures','saveSchedule','shareWorkspace','revokeShare','autoComplete'])await assert.rejects(a.request(action,{},id),/읽기만/);
+ assert.equal(f.calls.length,0);assert.equal(f.rows.length,1);
+});
+test('인증 확인용 백업도 원본을 수정하지 않는 읽기 요청만 사용한다',async()=>{
+ const f=fixture(),a=f.client(person,true);a.authPreview=true;const exported=await a.request('export',{},id);assert.equal(exported.format,'academy-calendar-v3');assert(f.calls.every(c=>c.method==='GET'));assert.equal(f.rows.length,1);
 });

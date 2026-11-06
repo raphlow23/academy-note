@@ -1,5 +1,6 @@
+import {ServerAuth,SERVER_SESSION_KEY} from './server-auth.js?v=20261106-auth1';
 import {SaveOutbox} from './save-outbox.js?v=20261104-durable1';
-import {CONFIG} from './config.js?v=20261104-google1';
+import {CONFIG} from './config.js?v=20261106-authcandidate1';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-closure1';
@@ -13,9 +14,17 @@ const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 const SESSION_KEY='subong-google-session-v1';
 
 export class GoogleStore{
- constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG,outboxStorage}={}){if(outboxStorage===undefined)try{outboxStorage=globalThis.localStorage;}catch{}this.outbox=new SaveOutbox(outboxStorage);this.flushing=null;this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};globalThis.addEventListener?.('storage',e=>{if(e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
+ constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG,outboxStorage}={}){if(outboxStorage===undefined)try{outboxStorage=globalThis.localStorage;}catch{}this.authPreview=false;try{this.authPreview=!!config.authServer&&new URL(globalThis.location?.href).searchParams.get('auth_preview')==='1';}catch{}this.serverAuth=new ServerAuth({baseUrl:config.authEnabled!==false||this.authPreview?config.authServer||'':'',clientId:config.clientId,fetcher:(...args)=>this.fetcher(...args)});this.refreshing=null;this.outbox=new SaveOutbox(outboxStorage);this.flushing=null;this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};if(this.serverAuth.enabled)globalThis.addEventListener?.('storage',e=>{if(!this.serverAuth.enabled||e.key!==SERVER_SESSION_KEY||!this.user)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.serverAuth.sessionToken)return;this.disconnect({forget:false});});globalThis.addEventListener?.('storage',e=>{if(this.serverAuth.enabled||e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
+ async ensureSession({force=false}={}){
+  if(!this.serverAuth.enabled||!force&&this.token&&this.expires>Date.now()+30000)return;
+  if(this.refreshing){await this.refreshing;if(!force)return;}
+  const epoch=this.epoch,expected=this.user?.sub;
+  const refresh=(async()=>{const grant=await this.serverAuth.token({force});if(this.epoch!==epoch)throw new Error('계정이 변경되었습니다.');if(expected&&grant.user.sub!==expected)throw new Error('구글 계정이 일치하지 않습니다.');this.token=grant.access_token;this.expires=grant.expires_at*1000;})();
+  this.refreshing=refresh;try{await refresh;}finally{if(this.refreshing===refresh)this.refreshing=null;}
+ }
  get configured(){return /^[\w.-]+\.apps\.googleusercontent\.com$/.test(this.config.clientId);}
  async signIn(){
+  if(this.serverAuth.enabled){const epoch=this.epoch,grant=await this.serverAuth.signIn();if(this.epoch!==epoch)throw new Error('계정이 변경되었습니다.');this.disconnect({forget:false});this.token=grant.access_token;this.expires=grant.expires_at*1000;await this.connectAccount(grant.user.sub);return this.user;}
   if(!this.configured)throw new Error('구글 로그인 연결 설정이 아직 준비되지 않았습니다.');
   if(!globalThis.google?.accounts?.oauth2)throw new Error('구글 로그인 화면을 준비 중입니다. 잠시 후 다시 눌러주세요.');
   this.disconnect();const epoch=this.epoch;
@@ -28,8 +37,9 @@ export class GoogleStore{
   this.token=response.access_token;this.expires=Date.now()+Number(response.expires_in||3500)*1000-30000;
   await this.connectAccount();this.persistSession();return this.user;
  }
- async connectAccount(){
+ async connectAccount(expectedSub){
   const identity=await this.http('https://openidconnect.googleapis.com/v1/userinfo');
+  if(expectedSub&&identity.sub!==expectedSub)throw new Error('구글 계정이 일치하지 않아 자료 연결을 중단했습니다.');
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
   await this.ensureOwnWorkspace();
@@ -39,9 +49,10 @@ export class GoogleStore{
   if(invited&&validId(invited)){try{const meta=await this.meta(invited);if(meta.ownedByMe||meta.capabilities?.canEdit){this.remember(meta);this.selected=invited;}}catch{}}
   return this.user;
  }
- persistSession(){const saved=JSON.stringify({token:this.token,expires:this.expires,savedAt:Date.now()});try{localStorage.setItem(SESSION_KEY,saved);}catch{}try{sessionStorage.setItem(SESSION_KEY,saved);}catch{}}
- forgetSession(){try{localStorage.setItem(SESSION_KEY,'null');}catch{}try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
+ persistSession(){if(this.serverAuth.enabled)return;const saved=JSON.stringify({token:this.token,expires:this.expires,savedAt:Date.now()});try{localStorage.setItem(SESSION_KEY,saved);}catch{}try{sessionStorage.setItem(SESSION_KEY,saved);}catch{}}
+ forgetSession(){if(this.serverAuth.enabled)this.serverAuth.logout();try{localStorage.setItem(SESSION_KEY,'null');}catch{}try{sessionStorage.removeItem(SESSION_KEY);}catch{}}
  async restoreSession(){
+  if(this.serverAuth.enabled){this.disconnect({forget:false});const grant=await this.serverAuth.restore();if(!grant)return false;this.token=grant.access_token;this.expires=grant.expires_at*1000;await this.connectAccount(grant.user.sub);return true;}
   let saved,persistent=false;try{const raw=localStorage.getItem(SESSION_KEY);if(raw!==null){persistent=true;saved=JSON.parse(raw);}}catch{}
   if(!persistent)try{saved=JSON.parse(sessionStorage.getItem(SESSION_KEY));}catch{return false;}
   if(!saved){if(persistent)try{sessionStorage.removeItem(SESSION_KEY);}catch{}return false;}
@@ -58,7 +69,7 @@ export class GoogleStore{
   const run=async()=>{
    const results=new Map();
    for(const row of this.outbox.read(sub).filter(r=>r.workspace===id)){
-    this.assertSession();if(this.epoch!==epoch||this.user?.sub!==sub)throw new Error('원래 계정으로 다시 연결하여 저장을 마치세요.');
+    if(this.serverAuth.enabled)await this.ensureSession();this.assertSession();if(this.epoch!==epoch||this.user?.sub!==sub)throw new Error('원래 계정으로 다시 연결하여 저장을 마치세요.');
     if(!this.files.some(f=>f.id===id))throw new Error('미전송 자료의 파일 접근 권한을 확인하세요.');
     this.pending.set(JSON.stringify([id,row.action,row.data]),{id:row.id,action:row.action,data:clone(row.data),actor:row.actor,at:row.at});
     try{const result=row.action==='registerAndBook'?await this.registerAndBook(row.data,id):await this.mutate(row.action,row.data,id);this.outbox.remove(sub,row.id);results.set(row.id,result);}
@@ -81,13 +92,14 @@ export class GoogleStore{
   };
   return globalThis.navigator?.locks?.request?navigator.locks.request('subong-save:'+sub,run):run();
  }
- async http(url,{method='GET',body,readRetry=method==='GET'}={}){
-  this.assertSession();const epoch=this.epoch,token=this.token;
+ async http(url,{method='GET',body,readRetry=method==='GET',authRetried=false}={}){
+  const initialEpoch=this.epoch;if(this.serverAuth.enabled)await this.ensureSession();if(this.epoch!==initialEpoch)throw new Error('계정이 바뀌어 요청을 중단했습니다.');this.assertSession();const epoch=this.epoch,token=this.token;
   for(let attempt=0;;attempt++){
    let response;
    try{response=await this.fetcher(url,{method,...(body!==undefined&&new TextEncoder().encode(JSON.stringify(body)).length<48000?{keepalive:true}:{}),signal:AbortSignal.timeout(25000),headers:{Authorization:'Bearer '+token,...(body!==undefined?{'Content-Type':'application/json'}:{})},...(body!==undefined?{body:JSON.stringify(body)}:{})});}
    catch{const stage=url.includes('/userinfo')?'구글 계정 확인':url.startsWith(SHEETS)?'구글 시트 연결':'구글 드라이브 연결';throw new Error(method==='GET'?stage+' 응답을 받지 못했습니다. 인터넷 연결을 확인하고 다시 눌러주세요.':stage+' 저장 응답을 받지 못했습니다. 새로고침으로 저장 여부를 먼저 확인하세요.');}
    if(this.epoch!==epoch)throw new Error('계정이 바뀌어 이전 계정의 요청을 중단했습니다.');
+   if(response.status===401&&this.serverAuth.enabled&&!authRetried&&attempt===0){await this.ensureSession({force:true});return this.http(url,{method,body,readRetry,authRetried:true});}
    if(response.status===401){this.disconnect();const e=new Error('구글 연결이 만료됐습니다. 다시 로그인해 주세요.');e.code='AUTH_REQUIRED';throw e;}
    if(readRetry&&[429,500,502,503].includes(response.status)&&attempt<3){await new Promise(r=>setTimeout(r,500*2**attempt));continue;}
    const data=response.status===204?{}:await response.json().catch(()=>({}));
@@ -115,7 +127,7 @@ export class GoogleStore{
    let own=this.files.find(f=>f.ownedByMe);
    if(!own){
     let saved;try{saved=localStorage.getItem('academy-own:'+sub)||localStorage.getItem('academy-selected:'+sub);}catch{}
-    if(saved&&validId(saved)){try{const m=await this.meta(saved);if(m.ownedByMe&&this.eligible(m)){this.remember(m);own=m;}}catch(e){if(![403,404].includes(e.status))throw e;}}
+    if(saved&&validId(saved)){try{const m=await this.meta(saved);if(m.ownedByMe&&this.eligible(m)){this.remember(m);own=m;}}catch(e){if(this.serverAuth.enabled||![403,404].includes(e.status))throw e;}}
    }
    if(epoch!==this.epoch)throw new Error('계정이 전환되었습니다. 다시 연결하세요.');
    const id=own?.id||(await this.initialize()).id;
@@ -156,12 +168,12 @@ export class GoogleStore{
   for(const [name,count] of Object.entries(sizes)){const sh=meta.get(name);if(!sh)throw new Error('조회용 '+name+' 탭이 없습니다. 원본을 확인하세요.');if(count>sh.gridProperties.rowCount)requests.push({appendDimension:{sheetId:sh.sheetId,dimension:'ROWS',length:Math.max(500,count-sh.gridProperties.rowCount)}});}
   if(requests.length){await this.http(SHEETS+'/'+id+':batchUpdate',{method:'POST',body:{requests}});for(const r of requests){const sh=[...meta.values()].find(s=>s.sheetId===r.appendDimension.sheetId);sh.gridProperties.rowCount+=r.appendDimension.length;}}
  }
- async load(id=this.selected){
+ async load(id=this.selected,{readOnly=false}={}){
   if(!this.user)throw new Error('구글 계정으로 로그인하세요.');
   const base={user:clone(this.user),workspaces:this.workspaces(),hasOwnWorkspace:this.files.some(f=>f.ownedByMe),appUrl:this.appUrl(),savedAt:stamp(),users:[]};
   if(!id)return {...base,needsSetup:true,...tablesToData(emptyTables()),databaseUrl:'',workspace:null};
   if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');
-  const snapshot=await this.completeElapsed(id);const m=snapshot.meta;
+  const snapshot=readOnly?await this.snapshot(id):await this.completeElapsed(id);const m=snapshot.meta;
   return {...base,needsSetup:false,...tablesToData(snapshot.tables),databaseUrl:'https://docs.google.com/spreadsheets/d/'+id+'/edit',workspace:{id,name:m.name,ownedByMe:!!m.ownedByMe,ownerEmail:m.owners?.[0]?.emailAddress||'',shareUrl:this.appUrl()+'?workspace='+id,permissions:[]}};
  }
  appUrl(){return location.origin+location.pathname;}
@@ -259,9 +271,10 @@ export class GoogleStore{
  }
  async connectFile(){const id=await this.chooseFile();if(!id)return null;const m=await this.meta(id);if(this.eligible(m)){this.remember(m);return this.select(id);}if(!m.ownedByMe)throw new Error('기존 자료 이관은 소유자 계정에서 진행하세요. 공유받은 새 자료는 그대로 연결할 수 있습니다.');const params=new URLSearchParams();Object.keys(TABLES).forEach(n=>params.append('ranges',range(n)));params.set('valueRenderOption','UNFORMATTED_VALUE');const old=await this.http(SHEETS+'/'+id+'/values:batchGet?'+params);const base=parseBase(old.valueRanges);if(!confirm('선택한 기존 자료를 본인 소유의 새 시트로 복사해 연결할까요? 원본은 수정하지 않으며 공유 권한은 새로 설정해야 합니다.'))return null;return this.initialize(base);}
  async request(action,data={},id=this.selected){
-  this.assertSession();if(!this.user)throw new Error('로그인하세요.');
+  const initialEpoch=this.epoch;if(this.serverAuth.enabled)await this.ensureSession();if(this.epoch!==initialEpoch)throw new Error('계정이 바뀌어 요청을 중단했습니다.');this.assertSession();if(!this.user)throw new Error('로그인하세요.');
+  if(this.authPreview&&!['load','listShares','export'].includes(action))throw new Error('로그인 연결 확인 화면입니다. 기존 자료는 읽기만 하며 저장하지 않습니다.');
   if(mutations.has(action)){if(!this.files.some(f=>f.id===id))throw new Error('현재 계정에 연결되지 않은 자료입니다.');return this.durableSave(action,data,id);}
-  if(action==='load'){for(const workspace of new Set(this.unsent().map(r=>r.workspace)))await this.flushUnsent(workspace);return this.load(id);}
+  if(action==='load'){if(this.authPreview)return this.load(id,{readOnly:true});for(const workspace of new Set(this.unsent().map(r=>r.workspace)))await this.flushUnsent(workspace);return this.load(id);}
   if(action==='initialize')return this.initialize();
   if(action==='selectWorkspace')return this.select(data.id);
   if(action==='selectOwnWorkspace'){const own=this.files.find(f=>f.ownedByMe);if(!own){this.selected='';return {id:''};}return this.select(own.id);}
@@ -272,7 +285,7 @@ export class GoogleStore{
   if(action==='listShares'){await this.owner(id);return {permissions:await this.permissions(id)};}
   if(action==='shareWorkspace')return this.share(id,data);
   if(action==='revokeShare')return this.revoke(id,data);
-  if(action==='export'){const s=await this.completeElapsed(id);return {format:'academy-calendar-v3',exportedAt:stamp(),tables:s.tables};}
+  if(action==='export'){const s=this.authPreview?await this.snapshot(id):await this.completeElapsed(id);return {format:'academy-calendar-v3',exportedAt:stamp(),tables:s.tables};}
   throw new Error('지원하지 않는 작업입니다.');
  }
 }
