@@ -1,6 +1,6 @@
 import {ServerAuth,SERVER_SESSION_KEY} from './server-auth.js?v=20261106-auth1';
 import {SaveOutbox} from './save-outbox.js?v=20261104-durable1';
-import {CONFIG} from './config.js?v=20261106-authcandidate1';
+import {CONFIG} from './config.js?v=20261106-auth2';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-closure1';
 import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {LOG, LOG_HEADERS, BASE, range, workbookResource, summaryRequests, parseBase,initialSettingsRows} from './workbook.js?v=20261104-closure1';

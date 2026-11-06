@@ -1,7 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {GoogleStore} from '../google-store.js';
+import {GoogleStore as AppGoogleStore} from '../google-store.js';
+// Existing transport tests explicitly exercise the supported legacy fallback.
+// Server-mode integration fixtures below provide their own authServer config.
+class GoogleStore extends AppGoogleStore{
+ constructor(options={}){super({...options,config:options.config??{clientId:'test.apps.googleusercontent.com',authEnabled:false,authServer:''}});}
+}
+
+test('배포 기본 설정은 로그인 유지 서버를 사용한다',()=>{
+ const store=new AppGoogleStore();
+ assert.equal(store.serverAuth.enabled,true);
+ assert.equal(store.serverAuth.baseUrl,'https://subong-academy-auth.raphlow.workers.dev');
+});
 
 test('새로고침 후 유효한 연결을 Google에 재확인하고 같은 계정 공간을 불러온다',async()=>{
  const previousStorage=globalThis.sessionStorage,previousLocation=globalThis.location,entries=new Map();
