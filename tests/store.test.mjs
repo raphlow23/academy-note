@@ -14,6 +14,15 @@ test('배포 기본 설정은 로그인 유지 서버를 사용한다',()=>{
  assert.equal(store.serverAuth.baseUrl,'https://subong-academy-auth.raphlow.workers.dev');
 });
 
+test('인증 서버가 확인한 계정은 userinfo를 중복 조회하지 않고 파일 권한은 확인한다',async()=>{
+ const previous=globalThis.location;globalThis.location={href:'https://example.test/academy/'};
+ try{const a=new GoogleStore({config:{clientId:'test.apps.googleusercontent.com',authServer:'https://auth.example.test'}});a.token='grant-token';a.expires=Date.now()+3600000;
+ a.http=async()=>{throw Error('duplicate userinfo request');};let checked=0;a.ensureOwnWorkspace=async()=>{checked++;a.files=[{id:'existing-sheet',ownedByMe:true}];};
+ await a.connectAccount('verified-owner',{sub:'verified-owner',email:'owner@example.test'});assert.equal(checked,1);assert.equal(a.selected,'existing-sheet');
+ await assert.rejects(a.connectAccount('verified-owner',{sub:'wrong-owner',email:'other@example.test'}),/일치하지/);
+ }finally{if(previous===undefined)delete globalThis.location;else globalThis.location=previous;}
+});
+
 test('새로고침 후 유효한 연결을 Google에 재확인하고 같은 계정 공간을 불러온다',async()=>{
  const previousStorage=globalThis.sessionStorage,previousLocation=globalThis.location,entries=new Map();
  globalThis.sessionStorage={getItem:k=>entries.get(k)||null,setItem:(k,v)=>entries.set(k,v),removeItem:k=>entries.delete(k)};
@@ -270,4 +279,27 @@ test('인증 확인용 화면은 예약·납부·정보수정·공유 변경을 
 });
 test('인증 확인용 백업도 원본을 수정하지 않는 읽기 요청만 사용한다',async()=>{
  const f=fixture(),a=f.client(person,true);a.authPreview=true;const exported=await a.request('export',{},id);assert.equal(exported.format,'academy-calendar-v3');assert(f.calls.every(c=>c.method==='GET'));assert.equal(f.rows.length,1);
+});
+
+test('인증 갱신이 끝나기 전에 저장 명령을 먼저 영구 대기열에 기록한다',async()=>{
+ const f=fixture(),a=f.client(person,true),command=f.command();a.expires=0;
+ a.serverAuth.token=async()=>{throw Object.assign(Error('offline'),{code:'AUTH_NETWORK'});};
+ const result=a.request('book',command,id);
+ assert.equal(a.unsent().length,1,'first await 전에 보관해야 한다');assert.deepEqual(a.unsent()[0].data,command);
+ await assert.rejects(result,/offline/);assert.equal(a.unsent().length,1);
+});
+test('홈 이동 시 keepalive로 같은 작업ID를 전송하고 다음 복구에서도 중복 차감하지 않는다',async()=>{
+ const f=fixture(),a=f.client(),command=f.command();await a.snapshot(id);const queued=a.outbox.add(person,id,'book',command,person,'2026-11-06 12:00:00');
+ const real=a.fetcher;a.fetcher=async(url,options)=>{assert.equal(options.keepalive,true);return real(url,options);};
+ assert.equal(a.backgroundFlush(),true);await Promise.resolve();assert.equal(f.rows[1][0],queued.id);assert.equal(a.unsent().length,1,'전송 시작만으로 확인된 저장으로 간주하지 않는다');
+ a.fetcher=real;await a.request('load',{},id);assert.equal(a.unsent().length,0);const d=await a.request('load',{},id);assert.equal(d.bookings.length,1);
+});
+
+test('통합 등록의 예약이 잘못됐으면 홈 이동 경로도 학생·납부 일부를 먼저 전송하지 않는다',async()=>{
+ const f=fixture(),a=f.client();await a.snapshot(id);
+ const d={student:{id:randomUUID(),version:0,name:'통합 학생',phone:'',since:'2026-11-01',note:'',active:true,priorCount:0,priorPaid:0}};
+ d.transaction={id:randomUUID(),studentId:d.student.id,date:'2026-11-01',kind:'정규권',credits:1,amount:10000,note:''};
+ d.booking={id:randomUUID(),studentId:d.student.id,passId:d.transaction.id,date:'2026-11-07',time:'11:00',endTime:'10:00',note:''};
+ a.outbox.add(person,id,'registerAndBook',d,person,'2026-11-06 12:00:00');const before=f.calls.length;
+ assert.equal(a.backgroundFlush(),false);assert.equal(f.calls.length,before);assert.equal(f.rows.length,1);assert.equal(a.unsent().length,1);
 });
