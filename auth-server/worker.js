@@ -1,3 +1,4 @@
+import {initializeAuthStorage,authDatabase} from './auth-storage.js';
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const TOKEN_URL='https://oauth2.googleapis.com/token';
 const USERINFO_URL='https://openidconnect.googleapis.com/v1/userinfo';
@@ -38,7 +39,7 @@ async function body(request){
 async function googleTokens(params,env,fetcher){
  const r=await fetcher(TOKEN_URL,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:env.GOOGLE_CLIENT_ID,client_secret:env.GOOGLE_CLIENT_SECRET,...params}),signal:AbortSignal.timeout(20000)});
  const token=await r.json();
- if(!r.ok){if(token.error==='invalid_grant')throw error(401,'auth_required');throw error(503,'google_temporarily_unavailable');}
+ if(!r.ok){if(token.error==='invalid_grant')throw error(401,'auth_required');const failure=error(503,'google_temporarily_unavailable');failure.upstreamStatus=r.status;failure.upstreamCode=['invalid_client','invalid_request','unauthorized_client','temporarily_unavailable','server_error'].includes(token.error)?token.error:'unexpected_response';throw failure;}
  if(typeof token.access_token!=='string'||!Number.isFinite(Number(token.expires_in))||Number(token.expires_in)<=0)throw error(503,'invalid_google_response');
  return token;
 }
@@ -132,7 +133,7 @@ export function createHandler({fetcher=(...args)=>fetch(...args),clock=()=>Date.
  return async function handle(request,env){
   let result;const url=new URL(request.url),appOrigin=new URL(env.APP_URL).origin,origin=request.headers.get('Origin');
   try{
-   if(url.pathname==='/health'&&request.method==='GET')result=response({service:'subong-auth-v1',ready:ready(env),client_id:env.GOOGLE_CLIENT_ID});
+   if(url.pathname==='/health'&&request.method==='GET')result=response({service:'subong-auth-v1',ready:ready(env),storage:env.AUTH_STORAGE||'d1',client_id:env.GOOGLE_CLIENT_ID});
    else{
     if(!ready(env))throw error(503,'auth_not_configured');
     if(url.pathname==='/auth/callback'&&request.method==='GET')result=await callback(url,env,fetcher,Math.floor(clock()/1000));
@@ -148,10 +149,18 @@ export function createHandler({fetcher=(...args)=>fetch(...args),clock=()=>Date.
      else throw error(404,'not_found');
     }
    }
-  }catch(e){result=response({error:e.code||'auth_temporarily_unavailable'},e.status||503);}
+  }catch(e){if(!e.status||e.status>=500)console.error('auth_failure',JSON.stringify({path:url.pathname,name:e.name,code:e.code||'auth_temporarily_unavailable',upstreamStatus:e.upstreamStatus,upstreamCode:e.upstreamCode}));result=response({error:e.code||'auth_temporarily_unavailable'},e.status||503);}
   const headers=new Headers(result.headers);headers.set('Cache-Control','no-store');headers.set('Referrer-Policy','no-referrer');headers.set('X-Content-Type-Options','nosniff');headers.set('Content-Security-Policy',"default-src 'none'; frame-ancestors 'none'");
   if(origin===appOrigin){headers.set('Access-Control-Allow-Origin',appOrigin);headers.set('Vary','Origin');headers.set('Access-Control-Allow-Methods','POST, OPTIONS');headers.set('Access-Control-Allow-Headers','Content-Type, Authorization, X-Requested-With');headers.set('Access-Control-Max-Age','600');}
   return new Response(result.body,{status:result.status,headers});
  };
 }
-export default {fetch:createHandler()};
+export class AuthState{
+ constructor(ctx,env){
+  initializeAuthStorage(ctx.storage,env.AUTH_BOOTSTRAP);
+  this.env={...env,DB:authDatabase(ctx.storage),AUTH_STORAGE:'durable-sqlite-v1'};
+  this.handle=createHandler();
+ }
+ fetch(request){return this.handle(request,this.env);}
+}
+export default {fetch(request,env){return env.AUTH_STATE.get(env.AUTH_STATE.idFromName('auth-v1')).fetch(request);}};

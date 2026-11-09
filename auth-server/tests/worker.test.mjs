@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {createHandler,hash,seal,unseal} from '../worker.js';
+import {AUTH_TABLES,initializeAuthStorage,authDatabase} from '../auth-storage.js';
 const APP='https://raphlow23.github.io/academy-note/',ORIGIN=new URL(APP).origin,AUTH='https://auth.example.test';
 const SCOPE='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const KEY=Buffer.alloc(32,17).toString('base64url');
 function fixture(){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync(new URL('../schema.sql',import.meta.url),'utf8'));
- const DB={prepare(sql){let values=[];return {bind(...args){values=args;return this;},async first(){return sqlite.prepare(sql).get(...values)||null;},async run(){const meta=sqlite.prepare(sql).run(...values);return {success:true,meta:{changes:Number(meta.changes)}};}};},async batch(statements){return Promise.all(statements.map(s=>s.run()));}};
+ const DB=process.env.AUTH_TEST_STORAGE==='durable'?authDatabase(sqliteStorage(sqlite)):{prepare(sql){let values=[];return {bind(...args){values=args;return this;},async first(){return sqlite.prepare(sql).get(...values)||null;},async run(){const meta=sqlite.prepare(sql).run(...values);return {success:true,meta:{changes:Number(meta.changes)}};}};},async batch(statements){return Promise.all(statements.map(s=>s.run()));}};
  let now=1793920000000,access=0,invalidRefresh=false,scope=SCOPE;const calls=[];
  const fetcher=async(url,options={})=>{
   calls.push({url,options});
@@ -24,8 +25,36 @@ function fixture(){
  const handle=createHandler({fetcher,clock:()=>now});
  const post=(path,data={},token,origin=ORIGIN)=>handle(new Request(AUTH+path,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json','X-Requested-With':'XmlHttpRequest',...(token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(data)}),env);
  async function login(){const verifier='v'.repeat(43),start=await (await post('/auth/start',{challenge:await hash(verifier),returnTo:APP+'?workspace=existing_sheet_123456789012345'})).json();const r=await handle(new Request(AUTH+'/auth/callback?'+new URLSearchParams({state:start.state,code:'one-use-google-code'})),env);assert.equal(r.status,303);const fragment=new URLSearchParams(new URL(r.headers.get('Location')).hash.slice(1));return {verifier,state:start.state,code:fragment.get('subong_auth'),start,redirect:r};}
- return {DB,sqlite,env,calls,post,handle,login,advance:s=>now+=s*1000,invalidate:()=>invalidRefresh=true,restrictScopes:()=>scope='openid',now:()=>now};
+ return {DB,sqlite,env,calls,post,handle,login,fetcher,advance:s=>now+=s*1000,invalidate:()=>invalidRefresh=true,restrictScopes:()=>scope='openid',now:()=>now};
 }
+
+function sqliteStorage(sqlite=new DatabaseSync(':memory:')){
+ return {sql:{exec(query,...values){const statement=sqlite.prepare(query),rows=statement.all(...values);return {toArray:()=>rows,rowsWritten:0};}},transactionSync(fn){sqlite.exec('BEGIN');try{const result=fn();sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
+}
+
+test('encrypted accounts and existing device sessions migrate once, renew and revoke without D1',async()=>{
+ const f=fixture(),login=await (await f.post('/auth/exchange',await f.login())).json();
+ const seed=Object.fromEntries(Object.keys(AUTH_TABLES).map(t=>[t,f.sqlite.prepare('SELECT * FROM '+t).all()]));
+ const storage=sqliteStorage();initializeAuthStorage(storage,JSON.stringify(seed));
+ const env={...f.env,DB:authDatabase(storage)};
+ f.advance(3700);
+ const request=()=>new Request(AUTH+'/auth/token',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json',Authorization:'Bearer '+login.session},body:'{}'});
+ const renewed=await f.handle(request(),env);assert.equal(renewed.status,200);assert.equal((await renewed.json()).user.sub,login.user.sub);
+ initializeAuthStorage(storage); // No bootstrap secret needed after first initialization.
+ const revoked=new Request(AUTH+'/auth/logout',{method:'POST',headers:{Origin:ORIGIN,'Content-Type':'application/json',Authorization:'Bearer '+login.session},body:'{}'});
+ assert.equal((await f.handle(revoked,env)).status,200);
+ initializeAuthStorage(storage,JSON.stringify(seed)); // Old seed cannot resurrect a logged-out session.
+ assert.equal((await f.handle(request(),env)).status,401);
+});
+
+test('missing or partial authentication migration fails atomically rather than starting an empty login store',()=>{
+ const storage=sqliteStorage();assert.throws(()=>initializeAuthStorage(storage),/not_initialized/);
+ const invalid=Object.fromEntries(Object.keys(AUTH_TABLES).map(t=>[t,[]]));invalid.auth_accounts=[{sub:'incomplete'}];
+ assert.throws(()=>initializeAuthStorage(storage,JSON.stringify(invalid)),/invalid_auth_bootstrap/);
+ const valid=Object.fromEntries(Object.keys(AUTH_TABLES).map(t=>[t,[]]));
+ initializeAuthStorage(storage,JSON.stringify(valid));
+ assert.equal(storage.sql.exec('SELECT COUNT(*) AS n FROM auth_accounts').toArray()[0].n,0);
+});
 test('same OAuth client, offline scope, PKCE and original workspace return URL are preserved',async()=>{
  const f=fixture(),flow=await f.login(),url=new URL(flow.start.authorization_url);
  assert.equal(url.searchParams.get('client_id'),f.env.GOOGLE_CLIENT_ID);assert.equal(url.searchParams.get('access_type'),'offline');assert.equal(url.searchParams.get('code_challenge_method'),'S256');assert.equal(url.searchParams.get('redirect_uri'),AUTH+'/auth/callback');assert.equal(url.searchParams.get('scope'),SCOPE);

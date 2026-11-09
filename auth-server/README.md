@@ -3,15 +3,15 @@
 기존 주소 `https://raphlow23.github.io/academy-note/`와 같은 Google OAuth 클라이언트를 유지합니다. 수강생·예약·납부·휴무 자료는 기존 Google Sheets에서 계속 처리합니다. 이 서버에는 시트 내용 읽기/쓰기 코드가 없습니다.
 
 ## 구성
-- Cloudflare Workers Free + 새 전용 D1 `subong-academy-auth`.
+- Cloudflare Workers Free + 전용 SQLite Durable Object `AuthState`. D1 조회 한도와 분리합니다.
 - 기본 로그인은 Google Identity Services의 승인 코드 팝업 방식입니다. 서버가 코드를 교환하므로 기존 홈 화면 웹앱과 GitHub 주소를 유지합니다. 같은 OAuth 클라이언트/같은 drive.file 범위입니다. 리디렉션 예비 경로에는 서버 PKCE와 브라우저 바인딩을 적용합니다.
-- Google Refresh Token과 짧은 Access Token은 AES-GCM으로 암호화해 D1에 저장합니다. 암호화 키와 클라이언트 비밀번호는 Worker Secrets입니다.
-- 브라우저에는 Google Refresh Token을 보내지 않습니다. 256비트 무작위 앱 세션만 기존 사이트의 기기 저장소에 보관하고 D1에는 그 해시만 보관합니다. 다른 사이트 쿠키에 의존하지 않으므로 GitHub 주소와 기존 바로가기를 유지할 수 있습니다.
+- Google Refresh Token과 짧은 Access Token은 AES-GCM으로 암호화해 전용 인증 저장소에 저장합니다. 암호화 키와 클라이언트 비밀번호는 Worker Secrets입니다.
+- 브라우저에는 Google Refresh Token을 보내지 않습니다. 256비트 무작위 앱 세션만 기존 사이트의 기기 저장소에 보관하고 인증 저장소에는 그 해시만 보관합니다. 다른 사이트 쿠키에 의존하지 않으므로 GitHub 주소와 기존 바로가기를 유지할 수 있습니다.
 - 세션은 사용 시 갱신되며 180일 미사용 시 만료됩니다. Google이 권한을 취소하면 재연결이 필요합니다.
 - 로그아웃은 해당 기기 세션만 삭제합니다. Google 권한/시트/다른 기기 세션은 지우지 않습니다.
 
 ## 배포와 비밀 정보
-`wrangler.jsonc`에는 공개 설정과 D1 ID만 있습니다. `GOOGLE_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`는 `wrangler secret bulk`로 주입하며 코드/저장소/소스 ZIP에 넣지 않습니다. 새 비밀번호를 추가하되 기존 비밀번호는 유지합니다.
+`wrangler.jsonc`에는 공개 설정과 Durable Object 바인딩만 있습니다. `GOOGLE_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`는 `wrangler secret bulk`로 주입하며 코드/저장소/소스 ZIP에 넣지 않습니다. 새 비밀번호를 추가하되 기존 비밀번호는 유지합니다.
 
 승인된 Google 반환 주소: `https://subong-academy-auth.raphlow.workers.dev/auth/callback`
 
@@ -25,3 +25,11 @@
 ## 검증
 `node --test academy-auth/tests/*.test.mjs` 및 `node --test academy-pages/tests/*.test.mjs`.
 상태 재사용 방지, 브라우저 바인딩, 허용 원본, 토큰 암호화, 계정/기기 분리, 만료 자동 갱신, API 재시도, 기존 시트 재사용, 읽기 전용 확인 경로를 검사합니다.
+
+## 2026-11-10 D1 한도 장애 복구
+- 계정 공유 D1 일일 읽기 한도 소진으로 `/auth/token`이 503을 반환했습니다. 다른 프로그램이 소진했는지는 사용량 통계 접근 제한으로 확정하지 않았습니다.
+- 전용 SQLite Durable Object로 인증 테이블을 원자적으로 복사했습니다. 암호화 계정 2건과 기존 기기 세션 4건을 유지하고 D1 런타임 바인딩을 제거했습니다. 원본 D1은 복구용으로 보존합니다.
+- 이관 시에만 Worker Secret `AUTH_BOOTSTRAP`을 사용했고 초기화 후 삭제했습니다. 이관 표식이 있으면 재이관하지 않아 로그아웃한 세션이 되살아나지 않습니다. 복구용 암호화 백업은 PC의 비공개 인증 운영 폴더에 보관하며 공개 소스에 넣지 않습니다.
+- 새 설치에서는 AUTH_TABLES의 모든 테이블을 빈 배열로 지정한 JSON을 AUTH_BOOTSTRAP Secret으로 초기화한 후 삭제합니다. 기존 설치에서는 빈 데이터로 초기화하면 안 됩니다.
+- `/health`는 `storage: durable-sqlite-v1`을 반환합니다. 저장소와 기존 인증 동작을 각각 14개 테스트로 검증했습니다. 기존 D1 schema.sql은 과거 백업 호환용이며 현재 schema는 auth-storage.js에 있습니다.
+- 무료 한도는 무제한이 아닙니다. Durable Objects 자체 한도와 계정 전체 Workers 요청 한도는 계속 적용됩니다.

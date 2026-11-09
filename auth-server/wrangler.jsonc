@@ -10,11 +10,6 @@
     "APP_URL": "https://raphlow23.github.io/academy-note/",
     "GOOGLE_CLIENT_ID": "797445060732-k4ntt5piugot6v04jdkb3k1p4utufi09.apps.googleusercontent.com"
   },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "subong-academy-auth",
-      "database_id": "8f8ca622-7ab3-4375-a990-954b0e90927c"
-    }
-  ]
+  "durable_objects": {"bindings": [{"name": "AUTH_STATE", "class_name": "AuthState"}]},
+  "migrations": [{"tag": "auth-sqlite-v1", "new_sqlite_classes": ["AuthState"]}]
 }
