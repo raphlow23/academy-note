@@ -223,3 +223,17 @@
 }
 
 .pull-refresh-notice{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;translate:-50% 0;z-index:1000;pointer-events:none;padding:9px 14px;border:1px solid #dce5f4;border-radius:24px;background:#fff;color:#536986;box-shadow:0 3px 16px #1835611a;font-size:12px;white-space:nowrap}.pull-refresh-notice.ready{background:#193b78;color:#fff;border-color:#193b78}
+
+/* Restore an existing connection without flashing the sign-in form. */
+.login-loading{padding:12px 0 8px}
+.login:not(.is-loading)>.login-loading{display:none}
+.login.is-loading>:not(.brandmark):not(.login-loading){display:none!important}
+.login.is-loading{width:min(360px,calc(100% - 40px));min-height:240px;margin:clamp(72px,18svh,180px) auto;padding:36px 24px;text-align:center;background:transparent;border-color:transparent;box-shadow:none}
+.login.is-loading>.brandmark{width:64px;height:64px;margin:0 auto 20px;border-radius:19px;background:#fff;box-shadow:0 6px 24px #26334d08}
+.login.is-loading>.brandmark img{width:52px;height:52px}
+.login-loading h1{font-size:21px;line-height:1.5;letter-spacing:-.7px;margin:0 0 8px;color:#27334d}
+.login-loading p{font-size:13px;line-height:1.7;color:#78849a;margin:0 0 26px;word-break:keep-all}
+.login-loading-track{width:196px;max-width:100%;height:5px;margin:0 auto;overflow:hidden;border-radius:8px;background:#dfe5ef}
+.login-loading-track span{display:block;width:38%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7bb5a0,#283b50);animation:login-loading-slide 1.45s ease-in-out infinite}
+@keyframes login-loading-slide{from{transform:translateX(-100%)}to{transform:translateX(265%)}}
+@media(prefers-reduced-motion:reduce){.login-loading-track span{animation:none;transform:none;width:100%;opacity:.65}}
