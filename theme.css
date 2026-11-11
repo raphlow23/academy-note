@@ -237,3 +237,5 @@
 .login-loading-track span{display:block;width:38%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#7bb5a0,#283b50);animation:login-loading-slide 1.45s ease-in-out infinite}
 @keyframes login-loading-slide{from{transform:translateX(-100%)}to{transform:translateX(265%)}}
 @media(prefers-reduced-motion:reduce){.login-loading-track span{animation:none;transform:none;width:100%;opacity:.65}}
+
+.usage-admin{margin-top:18px}.usage-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.usage-heading h2{margin:0}.usage-heading button{font-size:12px}.usage-admin .tablewrap{max-width:100%;overflow-x:auto}.usage-admin td{white-space:nowrap}.usage-admin td:first-child{overflow-wrap:anywhere;white-space:normal;min-width:150px}

@@ -1,5 +1,6 @@
+import {UsageReporter} from './usage-reporter.js?v=20261111-usage1';
 import {changedViews,viewWriteRequest,viewTables} from './sheet-views.js?v=20261106-exportfix1';
-import {ServerAuth,SERVER_SESSION_KEY} from './server-auth.js?v=20261106-auth1';
+import {ServerAuth,SERVER_SESSION_KEY} from './server-auth.js?v=20261111-usage1';
 import {SaveOutbox} from './save-outbox.js?v=20261104-durable1';
 import {CONFIG} from './config.js?v=20261106-exportfix1';
 import {TABLES, emptyTables, replay, tablesToData} from './domain.js?v=20261104-closure1';
@@ -15,7 +16,7 @@ const validId=id=>typeof id==='string'&&/^[a-zA-Z0-9_-]{20,200}$/.test(id);
 const SESSION_KEY='subong-google-session-v1';
 
 export class GoogleStore{
- constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG,outboxStorage}={}){if(outboxStorage===undefined)try{outboxStorage=globalThis.localStorage;}catch{}this.authPreview=false;try{this.authPreview=!!config.authServer&&new URL(globalThis.location?.href).searchParams.get('auth_preview')==='1';}catch{}this.serverAuth=new ServerAuth({baseUrl:config.authEnabled!==false||this.authPreview?config.authServer||'':'',clientId:config.clientId,fetcher:(...args)=>this.fetcher(...args)});this.refreshing=null;this.outbox=new SaveOutbox(outboxStorage);this.flushing=null;this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};if(this.serverAuth.enabled)globalThis.addEventListener?.('storage',e=>{if(!this.serverAuth.enabled||e.key!==SERVER_SESSION_KEY||!this.user)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.serverAuth.sessionToken)return;this.disconnect({forget:false});});globalThis.addEventListener?.('storage',e=>{if(this.serverAuth.enabled||e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
+ constructor({fetcher=(...args)=>globalThis.fetch(...args),config=CONFIG,outboxStorage}={}){if(outboxStorage===undefined)try{outboxStorage=globalThis.localStorage;}catch{}this.authPreview=false;try{this.authPreview=!!config.authServer&&new URL(globalThis.location?.href).searchParams.get('auth_preview')==='1';}catch{}this.serverAuth=new ServerAuth({baseUrl:config.authEnabled!==false||this.authPreview?config.authServer||'':'',clientId:config.clientId,fetcher:(...args)=>this.fetcher(...args)});this.usage=new UsageReporter({auth:this.serverAuth,storage:outboxStorage});this.refreshing=null;this.outbox=new SaveOutbox(outboxStorage);this.flushing=null;this.fetcher=fetcher;this.config=config;this.token='';this.expires=0;this.epoch=0;this.user=null;this.files=[];this.selected='';this.pending=new Map();this.gridMeta=new Map();this.onSignOut=()=>{};if(this.serverAuth.enabled)globalThis.addEventListener?.('storage',e=>{if(!this.serverAuth.enabled||e.key!==SERVER_SESSION_KEY||!this.user)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.serverAuth.sessionToken)return;this.disconnect({forget:false});});globalThis.addEventListener?.('storage',e=>{if(this.serverAuth.enabled||e.key!==SESSION_KEY||!this.token)return;let saved;try{saved=JSON.parse(e.newValue);}catch{}if(saved?.token===this.token)return;try{sessionStorage.removeItem(SESSION_KEY);}catch{}this.disconnect({forget:false});});}
  async ensureSession({force=false}={}){
   if(!this.serverAuth.enabled||!force&&this.token&&this.expires>Date.now()+30000)return;
   if(this.refreshing){await this.refreshing;if(!force)return;}
@@ -45,6 +46,7 @@ export class GoogleStore{
   if(expectedSub&&identity.sub!==expectedSub)throw new Error('구글 계정이 일치하지 않아 자료 연결을 중단했습니다.');
   if(!identity.email||!identity.sub)throw new Error('로그인한 구글 계정을 확인할 수 없습니다.');
   this.user={email:identity.email.toLowerCase(),sub:identity.sub,name:identity.email.split('@')[0],role:'admin'};
+  if(!this.authPreview)this.usage.visit(this.user.sub);
   await this.ensureOwnWorkspace();
   let saved=null;try{saved=localStorage.getItem('academy-selected:'+this.user.sub);}catch{}
   this.selected=this.files.some(f=>f.id===saved)?saved:this.files.find(f=>f.ownedByMe)?.id||this.files[0]?.id||'';
@@ -75,13 +77,14 @@ export class GoogleStore{
     if(this.serverAuth.enabled)await this.ensureSession();this.assertSession();if(this.epoch!==epoch||this.user?.sub!==sub)throw new Error('원래 계정으로 다시 연결하여 저장을 마치세요.');
     if(!this.files.some(f=>f.id===id))throw new Error('미전송 자료의 파일 접근 권한을 확인하세요.');
     this.pending.set(JSON.stringify([id,row.action,row.data]),{id:row.id,action:row.action,data:clone(row.data),actor:row.actor,at:row.at});
-    try{const result=row.action==='registerAndBook'?await this.registerAndBook(row.data,id):await this.mutate(row.action,row.data,id);this.outbox.remove(sub,row.id);results.set(row.id,result);}
+    try{const result=row.action==='registerAndBook'?await this.registerAndBook(row.data,id):await this.mutate(row.action,row.data,id);this.outbox.remove(sub,row.id);this.recordUsageSaved(row.id,id);results.set(row.id,result);}
     catch(e){if(e.permanent||[400,403,404].includes(e.status)){this.outbox.remove(sub,row.id);this.pending.delete(JSON.stringify([id,row.action,row.data]));}throw e;}
    }return results;
   };
   const execute=()=>!locked&&globalThis.navigator?.locks?.request?navigator.locks.request('subong-save:'+sub,run):run();
   const promise=execute();this.flushing=promise;try{return await promise;}finally{if(this.flushing===promise)this.flushing=null;}
  }
+ recordUsageSaved(eventId,workspace){if(!this.authPreview&&this.user)void this.usage.saved(this.user.sub,workspace,eventId);}
  async durableSave(action,data,id){
   const sub=this.user.sub,epoch=this.epoch;
   const fingerprint=JSON.stringify([id,action,data]);
@@ -211,7 +214,9 @@ export class GoogleStore{
    await this.http(SHEETS+'/'+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});
    snapshot=await this.snapshot(id,snapshot.meta);
   }
-  await this.settle(id,snapshot);return snapshot;
+  await this.settle(id,snapshot);
+  if(due.length)for(const event of snapshot.events.filter(e=>e.id.startsWith('auto-complete:')&&due.some(b=>e.id==='auto-complete:'+b.id+':'+b.version))){const outcome=snapshot.outcomes[snapshot.events.indexOf(event)];if(outcome?.status==='적용')this.recordUsageSaved(event.id,id);}
+  return snapshot;
  }
  async initialize(base=emptyTables()){
   if(!this.user)throw new Error('로그인하세요.');

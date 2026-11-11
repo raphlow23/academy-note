@@ -1,4 +1,5 @@
 import {initializeAuthStorage,authDatabase} from './auth-storage.js';
+import {initializeUsageStorage,usage} from './usage.js';
 const SCOPES='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const TOKEN_URL='https://oauth2.googleapis.com/token';
 const USERINFO_URL='https://openidconnect.googleapis.com/v1/userinfo';
@@ -146,6 +147,7 @@ export function createHandler({fetcher=(...args)=>fetch(...args),clock=()=>Date.
      else if(url.pathname==='/auth/exchange')result=await exchange(request,env,fetcher,Math.floor(clock()/1000));
      else if(url.pathname==='/auth/token')result=await session(request,env,fetcher,Math.floor(clock()/1000));
      else if(url.pathname==='/auth/logout')result=await session(request,env,fetcher,Math.floor(clock()/1000),true);
+     else if(url.pathname==='/usage/event'||url.pathname==='/usage/status')result=await usage(request,env,Math.floor(clock()/1000),{hash,body,response});
      else throw error(404,'not_found');
     }
    }
@@ -158,6 +160,7 @@ export function createHandler({fetcher=(...args)=>fetch(...args),clock=()=>Date.
 export class AuthState{
  constructor(ctx,env){
   initializeAuthStorage(ctx.storage,env.AUTH_BOOTSTRAP);
+  initializeUsageStorage(ctx.storage);
   this.env={...env,DB:authDatabase(ctx.storage),AUTH_STORAGE:'durable-sqlite-v1'};
   this.handle=createHandler();
  }

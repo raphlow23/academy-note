@@ -7,6 +7,7 @@
     "enabled": false
   },
   "vars": {
+    "USAGE_ADMIN_EMAILS": "jackslife23@gmail.com",
     "APP_URL": "https://raphlow23.github.io/academy-note/",
     "GOOGLE_CLIENT_ID": "797445060732-k4ntt5piugot6v04jdkb3k1p4utufi09.apps.googleusercontent.com"
   },

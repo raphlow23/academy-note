@@ -27,7 +27,7 @@ export async function syncSheetInputs(store,id){
  let snapshot=await store.snapshot(id);const at=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date());
  const plan=await planSheetInputs(snapshot,groups,store.user.email,at,id);
  if(epoch!==store.epoch||sub!==store.user?.sub)throw Error('계정이 변경되었습니다.');
- if(plan.events.length){await store.http(API+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:plan.events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});snapshot=await store.snapshot(id,snapshot.meta);await store.settle(id,snapshot);}
+ if(plan.events.length){await store.http(API+id+'/values/'+encodeURIComponent(range(LOG,'A:V'))+':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',{method:'POST',body:{values:plan.events.map(e=>[e.id,e.action,e.actor,e.at,JSON.stringify(e.data),'처리 대기','','','',...Array(13).fill('')])}});snapshot=await store.snapshot(id,snapshot.meta);await store.settle(id,snapshot);for(const event of plan.events){const index=snapshot.events.findIndex(e=>e.id===event.id);if(snapshot.outcomes[index]?.status==='적용')store.recordUsageSaved?.(event.id,id);}}
  // Check the user's row again before filling IDs or receipts; do not overwrite
  // a row that was edited while the network request was in flight.
  const current=await readInputs(store,id),data=[];let errors=0;

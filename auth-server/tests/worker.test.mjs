@@ -4,6 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {createHandler,hash,seal,unseal} from '../worker.js';
 import {AUTH_TABLES,initializeAuthStorage,authDatabase} from '../auth-storage.js';
+import {USAGE_SCHEMA,initializeUsageStorage} from '../usage.js';
 const APP='https://raphlow23.github.io/academy-note/',ORIGIN=new URL(APP).origin,AUTH='https://auth.example.test';
 const SCOPE='openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file';
 const KEY=Buffer.alloc(32,17).toString('base64url');
@@ -11,6 +12,7 @@ function fixture(){
  const sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync(new URL('../schema.sql',import.meta.url),'utf8'));
  const DB=process.env.AUTH_TEST_STORAGE==='durable'?authDatabase(sqliteStorage(sqlite)):{prepare(sql){let values=[];return {bind(...args){values=args;return this;},async first(){return sqlite.prepare(sql).get(...values)||null;},async run(){const meta=sqlite.prepare(sql).run(...values);return {success:true,meta:{changes:Number(meta.changes)}};}};},async batch(statements){return Promise.all(statements.map(s=>s.run()));}};
  let now=1793920000000,access=0,invalidRefresh=false,scope=SCOPE;const calls=[];
+ sqlite.exec(USAGE_SCHEMA);sqlite.prepare('INSERT INTO usage_meta(id,started_at) VALUES(1,?)').run(Math.floor(now/1000));
  const fetcher=async(url,options={})=>{
   calls.push({url,options});
   if(url==='https://oauth2.googleapis.com/token'){
@@ -31,6 +33,42 @@ function fixture(){
 function sqliteStorage(sqlite=new DatabaseSync(':memory:')){
  return {sql:{exec(query,...values){const statement=sqlite.prepare(query),rows=statement.all(...values);return {toArray:()=>rows,rowsWritten:0};}},transactionSync(fn){sqlite.exec('BEGIN');try{const result=fn();sqlite.exec('COMMIT');return result;}catch(e){sqlite.exec('ROLLBACK');throw e;}}};
 }
+
+test('usage timestamps are authenticated, deduplicated and independent of token refresh',async()=>{
+ const f=fixture(),grant=await (await f.post('/auth/exchange',await f.login())).json();
+ const at=Math.floor(f.now()/1000),event={id:'v'.repeat(32),kind:'visit',at};
+ assert.equal((await f.post('/usage/event',event)).status,401);
+ assert.equal((await f.post('/usage/event',{...event,email:'someone@example.test'},grant.session)).status,400);
+ assert.equal((await f.post('/usage/event',event,grant.session)).status,200);
+ f.advance(120);
+ assert.equal((await f.post('/usage/event',{...event,kind:'save',at:at+120},grant.session)).status,200);
+ let data=await (await f.post('/usage/status',{},grant.session)).json();
+ assert.equal(data.accounts[0].lastVisit,at);assert(!data.accounts[0].lastSaved);
+ await f.post('/auth/token',{},grant.session);
+ data=await (await f.post('/usage/status',{},grant.session)).json();assert.equal(data.accounts[0].lastVisit,at);
+ await f.post('/usage/event',{id:'w'.repeat(32),kind:'save',at:at+120},grant.session);
+ data=await (await f.post('/usage/status',{},grant.session)).json();assert.equal(data.accounts[0].lastSaved,at+120);
+ assert.equal(f.sqlite.prepare('SELECT COUNT(*) AS n FROM usage_events').get().n,2);
+ assert(!JSON.stringify(data).includes('access_token'));assert(!JSON.stringify(data).includes('session_hash'));
+});
+
+test('only the configured operator sees other accounts, even when all app users own their sheets',async()=>{
+ const f=fixture(),grant=await (await f.post('/auth/exchange',await f.login())).json();
+ f.sqlite.exec("INSERT INTO auth_accounts SELECT 'other','other@example.test',refresh_cipher,access_cipher,access_expires,updated_at FROM auth_accounts LIMIT 1");
+ let data=await (await f.post('/usage/status',{admin:true,sub:'other'},grant.session)).json();
+ assert.equal(data.admin,false);assert.equal(data.accounts.length,1);assert.equal(data.accounts[0].email,'owner@example.test');
+ f.env.USAGE_ADMIN_EMAILS='owner@example.test';
+ data=await (await f.post('/usage/status',{},grant.session)).json();assert.equal(data.admin,true);assert.equal(data.accounts.length,2);
+ assert.equal((await f.post('/usage/event',{id:'x'.repeat(32),kind:'visit',at:Math.floor(f.now()/1000)+301},grant.session)).status,400);
+});
+
+test('usage schema migration keeps existing sessions and timestamps across object restarts',()=>{
+ const storage=sqliteStorage();initializeUsageStorage(storage,1000);
+ storage.sql.exec('INSERT INTO usage_summary(sub,last_visit,last_saved) VALUES(?,?,?)','user',1100,1200);
+ initializeUsageStorage(storage,2000);
+ assert.equal(storage.sql.exec('SELECT started_at FROM usage_meta WHERE id=1').toArray()[0].started_at,1000);
+ assert.equal(storage.sql.exec('SELECT last_saved FROM usage_summary').toArray()[0].last_saved,1200);
+});
 
 test('encrypted accounts and existing device sessions migrate once, renew and revoke without D1',async()=>{
  const f=fixture(),login=await (await f.post('/auth/exchange',await f.login())).json();

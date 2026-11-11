@@ -1,5 +1,5 @@
 import {AutoCommit} from './form-autosave.js?v=20261106-sheets2';
-import {syncSheetInputs} from './sheet-sync.js?v=20261106-sheets1';
+import {syncSheetInputs} from './sheet-sync.js?v=20261111-usage1';
 import {installScrollBoundary} from './scroll-boundary.js?v=20261104-pullrefresh1';
 import {htmlBuild,freshAppUrl,latestBuild} from './app-update.js?v=20261104-slide1';
 import {installMenuSwipe} from './menu-swipe.js?v=20261104-swipeflow1';
@@ -8,7 +8,7 @@ import {needsCompletion} from './booking-completion.js?v=20261104-start1';
 import {nextDate,scheduleAtDate} from './schedule-history.js?v=20261104-history1';
 import {tablesToData} from './domain.js?v=20261104-closure1';
 import {studentCreditState,isLastLesson,creditTone} from './student-alerts.js?v=20261104-colors1';
-import {GoogleStore} from './google-store.js?v=20261106-exportfix1';
+import {GoogleStore} from './google-store.js?v=20261111-usage1';
 import {orderedStudentGroups} from './student-order.js';
 Academy.closed=closureReason;
 installScrollBoundary(document,{
@@ -34,9 +34,25 @@ let autoForms,sheetSyncRunning=false,sheetSyncTimer;
 let toastTimer,preparedFileUrl=null,menuTransition=null,menuAnimation=null,menuGeneration=0,menuAnimating=false;
 const dirtySettings=new Set(),runningBuild=htmlBuild(document.documentElement.outerHTML);
 let updateAvailable=false,updateCheckPromise=null,lastUpdateCheck=0,appReloading=false;
+let usageFetching=false;
+function usageTime(seconds){return seconds?new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',dateStyle:'medium',timeStyle:'short',hour12:false}).format(new Date(seconds*1000)):'아직 기록 없음';}
+async function refreshUsageStatus(){
+ if(demo||!backend.user||!backend.serverAuth.enabled||usageFetching)return;
+ const epoch=backend.epoch,sub=backend.user.sub;usageFetching=true;$('refreshUsage').disabled=true;
+ try{const result=await backend.usage.status();if(backend.epoch!==epoch||backend.user?.sub!==sub)return;
+  $('usageAdminCard').hidden=!result.admin;if(!result.admin){$('usageAccounts').replaceChildren();return;}
+  $('usageRecordingSince').textContent='기록 시작: '+usageTime(result.recordingSince)+' · 한국시간';
+  $('usageAccounts').innerHTML=table(['계정','최근 접속','최근 저장 완료'],result.accounts.map(a=>[esc(a.email),esc(usageTime(a.lastVisit)),esc(usageTime(a.lastSaved))]));
+  $('usageStatus').textContent='최근 확인: '+usageTime(Math.floor(Date.now()/1000));
+ }catch(e){if(backend.epoch===epoch&&backend.user?.sub===sub)$('usageStatus').textContent='이용 기록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.';}
+ finally{usageFetching=false;$('refreshUsage').disabled=false;}
+}
+$('refreshUsage').onclick=refreshUsageStatus;
+window.addEventListener('online',()=>{if(backend.user&&!backend.authPreview)void backend.usage.flush();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&backend.user&&!demo&&!backend.authPreview)backend.usage.visit(backend.user.sub);});
 function toast(msg,error=false){$('toast').textContent=msg;$('toast').classList.toggle('error',error);$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,error?12000:4500);}
 function setLoginLoading(loading,message='저장된 연결을 확인하고 있습니다.'){const panel=$('login');panel.classList.toggle('is-loading',loading);panel.setAttribute('aria-busy',String(loading));$('loginLoading').hidden=!loading;$('loginLoadingMessage').textContent=message;}
-function clearPrivateView(){setLoginLoading(false);menuGeneration++;menuTransition?.skipTransition();menuAnimation?.cancel();menuTransition=null;menuAnimation=null;menuAnimating=false;if(history.state?.subongQuick||history.state?.subongDetail){const restored={...history.state};delete restored.subongQuick;delete restored.subongDetail;history.replaceState(restored,'',location.href);}if(preparedFileUrl){URL.revokeObjectURL(preparedFileUrl);preparedFileUrl=null;}$('preparedDownload').removeAttribute('href');$('downloadInfo').textContent='';document.querySelectorAll('dialog').forEach(d=>d.close());state.data=null;state.detailId=null;state.closureDraft=null;state.scheduleDraft=null;$('shell').hidden=true;$('login').hidden=false;['calendarGrid','dayPanel','studentTable','studentDetail','studentQuickContent','stats','sharesTable'].forEach(id=>$(id).replaceChildren());document.querySelectorAll('form').forEach(f=>f.reset());}
+function clearPrivateView(){setLoginLoading(false);$('usageAdminCard').hidden=true;$('usageAccounts').replaceChildren();$('usageStatus').textContent='';menuGeneration++;menuTransition?.skipTransition();menuAnimation?.cancel();menuTransition=null;menuAnimation=null;menuAnimating=false;if(history.state?.subongQuick||history.state?.subongDetail){const restored={...history.state};delete restored.subongQuick;delete restored.subongDetail;history.replaceState(restored,'',location.href);}if(preparedFileUrl){URL.revokeObjectURL(preparedFileUrl);preparedFileUrl=null;}$('preparedDownload').removeAttribute('href');$('downloadInfo').textContent='';document.querySelectorAll('dialog').forEach(d=>d.close());state.data=null;state.detailId=null;state.closureDraft=null;state.scheduleDraft=null;$('shell').hidden=true;$('login').hidden=false;['calendarGrid','dayPanel','studentTable','studentDetail','studentQuickContent','stats','sharesTable'].forEach(id=>$(id).replaceChildren());document.querySelectorAll('form').forEach(f=>f.reset());}
 async function request(action,data={},forcedWorkspaceId){if(demo)throw new Error('화면 미리보기입니다. 실제 저장은 구글 로그인 후 사용하세요.');const id=forcedWorkspaceId!==undefined?forcedWorkspaceId:state.data?.workspace?.id||backend.selected;try{const operation=backend.request(action,data,id);updateSyncNotice();const result=await operation;if(['saveStudent','addTransaction','book','changeBooking','saveClosures','saveSchedule','registerAndBook'].includes(action)){confirmedWrites++;const form={saveStudent:'studentForm',book:'bookingForm',saveClosures:'closureForm',saveSchedule:'scheduleForm',registerAndBook:data.student?'studentForm':'transactionForm'}[action];if(form)autoForms?.reset(form);}return result;}finally{if(['saveStudent','addTransaction','book','changeBooking','saveClosures','saveSchedule','registerAndBook'].includes(action)&&backend.latestTables&&backend.latestWorkspace===id&&state.data?.workspace?.id===id&&state.data.user.email===backend.user?.email){Object.assign(state.data,tablesToData(backend.latestTables));renderAllData();}}}
 async function task(button,fn){if(button?.disabled)return;if(state.pending){toast('현재 작업이 끝난 뒤 다시 시도하세요.');return;}const form=button?.closest('form'),controls=form?[...form.querySelectorAll('input,select,textarea,button')].map(el=>[el,el.disabled]):[];controls.forEach(([el])=>el.disabled=true);if(button)button.disabled=true;state.pending++;$('saveState').textContent=' · 처리 중…';const began=performance.now(),writesBefore=confirmedWrites;try{await fn();$('saveState').textContent=` · ${confirmedWrites>writesBefore?'구글 저장 확인':'완료'} (${((performance.now()-began)/1000).toFixed(1)}초)`;}catch(e){$('saveState').textContent=' · 완료 여부 확인 필요';if(form)autoForms?.fail(form.id,e.message);toast(e.message,true);}finally{controls.forEach(([el,disabled])=>el.disabled=disabled);if(button)button.disabled=false;state.pending--;updateSyncNotice();maybeApplyUpdate();}}
 function hasUnsent(){try{return !demo&&backend.unsent().length>0;}catch{return true;}}
@@ -53,7 +69,7 @@ $('retrySync').onclick=resumeUnsent;
 window.addEventListener('online',resumeUnsent);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)resumeUnsent();});
 setInterval(resumeUnsent,30000);
-async function load(workspaceId){if(!$('login').hidden)setLoginLoading(true,'내 학원 기록을 불러오고 있습니다.');try{const data=await request('load',{},workspaceId);state.data=data;state.scheduleDraft=null;state.closureDraft=null;$('grantFilePermission').hidden=true;render();$('login').hidden=true;$('shell').hidden=false;scheduleSheetSync();}finally{setLoginLoading(false);checkAppUpdate({force:true});}}
+async function load(workspaceId){if(!$('login').hidden)setLoginLoading(true,'내 학원 기록을 불러오고 있습니다.');try{const data=await request('load',{},workspaceId);state.data=data;state.scheduleDraft=null;state.closureDraft=null;$('grantFilePermission').hidden=true;render();$('login').hidden=true;$('shell').hidden=false;scheduleSheetSync();void refreshUsageStatus();}finally{setLoginLoading(false);checkAppUpdate({force:true});}}
 function table(headers,rows){return rows.length?`<div class="tablewrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'<div class="empty">아직 기록이 없습니다.</div>';}
 function summary(s){return Academy.summary(s,state.data);}
 function creditBadge(id){return studentCreditState(id,state.data).exhausted?'<span class="creditnotice">소진 · 재등록</span>':'';}
@@ -104,7 +120,7 @@ installMenuSwipe($('shell'),{
 // Let a zoomed page pan freely; navigation gestures stay disabled while zoomed.
 function syncSwipeTouchAction(){$('shell').style.touchAction=window.visualViewport?.scale>1.01?'auto':'';}
 window.visualViewport?.addEventListener('resize',syncSwipeTouchAction);syncSwipeTouchAction();
-function applyView(view){document.body.classList.toggle('calendar-mode',view==='calendar');if(['closures','backup','users'].includes(view)&&state.data.user.role!=='admin')view='calendar';state.view=view;Object.keys(pages).forEach(v=>$(v+'View').hidden=v!==view);document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});$('pageTitle').textContent=pages[view][0];$('pageDesc').textContent=pages[view][1];requestAnimationFrame(fitCalendar);$('stats').hidden=view!=='calendar';$('topBook').hidden=view!=='calendar';updatePrint();}
+function applyView(view){document.body.classList.toggle('calendar-mode',view==='calendar');if(['closures','backup','users'].includes(view)&&state.data.user.role!=='admin')view='calendar';state.view=view;if(view==='closures')void refreshUsageStatus();Object.keys(pages).forEach(v=>$(v+'View').hidden=v!==view);document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===view);b.setAttribute('aria-current',b.dataset.view===view?'page':'false');});$('pageTitle').textContent=pages[view][0];$('pageDesc').textContent=pages[view][1];requestAnimationFrame(fitCalendar);$('stats').hidden=view!=='calendar';$('topBook').hidden=view!=='calendar';updatePrint();}
 function switchView(view){
  if(state.pending&&view!==state.view){toast('저장 완료 후 메뉴를 이동하세요.');return;}
  if(['closures','backup','users'].includes(view)&&state.data?.user.role!=='admin')view='calendar';

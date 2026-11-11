@@ -303,3 +303,12 @@ test('통합 등록의 예약이 잘못됐으면 홈 이동 경로도 학생·�
  a.outbox.add(person,id,'registerAndBook',d,person,'2026-11-06 12:00:00');const before=f.calls.length;
  assert.equal(a.backgroundFlush(),false);assert.equal(f.calls.length,before);assert.equal(f.rows.length,1);assert.equal(a.unsent().length,1);
 });
+
+test('이용 기록은 저장 버튼 클릭이나 실패가 아니라 구글 저장 확인 뒤에만 남긴다',async()=>{
+ const f=fixture(),a=f.client(),reports=[];a.recordUsageSaved=(eventId,workspace)=>reports.push({eventId,workspace});
+ const command={...f.command(),date:'2099-11-07'};
+ await assert.rejects(a.request('book',{...command,endTime:'10:00'},id));assert.equal(reports.length,0);
+ f.lose();await assert.rejects(a.request('book',command,id));assert.equal(reports.length,0);
+ await a.request('load',{},id);assert.equal(reports.length,1);assert.equal(reports[0].workspace,id);
+ await a.request('load',{},id);assert.equal(reports.length,1);
+});
